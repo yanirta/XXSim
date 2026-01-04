@@ -81,7 +81,44 @@ def execute(order, bar, state=None):
 - Easier to add new order types (compose from existing primitives)
 - Natural state propagation for multi-bar orders
 
-#### 2.2 Trailing Stop Orders
+#### 2.2 Execution Logging
+
+**Goal:** Provide visibility into execution decisions for debugging and analysis.
+
+**Implementation:**
+```python
+import logging
+
+logger = logging.getLogger("xsim.execution")
+
+def execute(order, bar, state=None):
+    logger.debug(f"Evaluating {order.orderType} order {order.orderId} against bar {bar.date}")
+    
+    if isinstance(order, StopLimitOrder):
+        if stop_condition_met(order, bar):
+            logger.info(f"Stop triggered at {trigger_point} for order {order.orderId}")
+            # Transform to limit order
+            limit_order = LimitOrder(...)
+            return execute(limit_order, bar, state)
+        else:
+            logger.debug(f"Stop not triggered (stop={order.stopPrice}, bar.high={bar.high})")
+            return None, state
+```
+
+**Features:**
+- **DEBUG level**: Every order evaluation, bar-by-bar details
+- **INFO level**: Trigger events, fills, state transitions
+- **WARNING level**: Gap scenarios, ambiguous situations
+- **Structured output**: JSON-compatible for analysis tools
+- **Performance impact**: Minimal overhead, opt-in via logging config
+
+**Use Cases:**
+- Debug why an order didn't fill as expected
+- Analyze execution quality across backtests
+- Generate execution reports for strategy validation
+- Audit trail for regulatory compliance
+
+#### 2.3 Trailing Stop Orders
 
 **Implementation with caller-managed state:**
 ```python
