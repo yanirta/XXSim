@@ -61,7 +61,7 @@ class ExecutionEngine:
         
         # Limit orders: execute at limit if bar touches it
         if order.orderType == "LMT":
-            limit_price = order.lmtPrice
+            limit_price = order.price
             
             if action == "BUY":
                 # Buy limit fills when price drops to or below limit
@@ -83,7 +83,7 @@ class ExecutionEngine:
         
         # Stop orders: trigger at stop price, then execute as market
         if order.orderType == "STP":
-            stop_price = order.auxPrice
+            stop_price = order.price
             
             if action == "BUY":
                 # Buy stop triggers when price rises to or above stop
@@ -109,8 +109,9 @@ class ExecutionEngine:
         # Phase 1: Check if stop triggers (converts to limit order)
         # Phase 2: Evaluate limit against remaining bar movement after trigger
         if order.orderType == "STP LMT":
-            stop_price = order.auxPrice
-            limit_price = order.lmtPrice
+            stop_price = order.price
+            # StopLimitOrder has limit in child order, not parent
+            limit_price = order.children[0].price if order.children else order.price
             
             if action == "BUY":
                 # PHASE 1: Check if stop triggers (BUY stop triggers on upward movement)

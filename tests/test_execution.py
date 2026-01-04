@@ -43,7 +43,7 @@ def engine():
 
 def test_market_order_buys_at_open(engine, bullish_bar):
     """Market orders execute at bar open price."""
-    order = MarketOrder(action="BUY", totalQuantity=100, orderId=1)
+    order = MarketOrder(action="BUY", totalQuantity=100)
     
     fill = engine.execute(order, bullish_bar)
     
@@ -54,7 +54,7 @@ def test_market_order_buys_at_open(engine, bullish_bar):
 
 def test_market_order_sells_at_open(engine, bullish_bar):
     """Market sell orders execute at bar open price."""
-    order = MarketOrder(action="SELL", totalQuantity=100, orderId=1)
+    order = MarketOrder(action="SELL", totalQuantity=100)
     
     fill = engine.execute(order, bullish_bar)
     
@@ -65,7 +65,7 @@ def test_market_order_sells_at_open(engine, bullish_bar):
 
 def test_market_order_on_bearish_bar(engine, bearish_bar):
     """Market orders execute at open regardless of bar direction."""
-    order = MarketOrder(action="BUY", totalQuantity=100, orderId=1)
+    order = MarketOrder(action="BUY", totalQuantity=100)
     
     fill = engine.execute(order, bearish_bar)
     
@@ -80,7 +80,7 @@ def test_market_order_on_bearish_bar(engine, bearish_bar):
     #region Buy orders
 def test_buy_limit_fills_when_low_touches_limit(engine, bullish_bar):
     """Buy limit fills at limit price when bar low reaches it."""
-    order = LimitOrder(action="BUY", totalQuantity=100, lmtPrice=Decimal("147.00"), orderId=1)
+    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("147.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -91,7 +91,7 @@ def test_buy_limit_fills_when_low_touches_limit(engine, bullish_bar):
 
 def test_buy_limit_no_fill_when_low_above_limit(engine, bullish_bar):
     """Buy limit doesn't fill when bar low stays above limit price."""
-    order = LimitOrder(action="BUY", totalQuantity=100, lmtPrice=Decimal("145.00"), orderId=1)
+    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("145.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -99,7 +99,7 @@ def test_buy_limit_no_fill_when_low_above_limit(engine, bullish_bar):
 
 def test_buy_limit_fills_at_open_when_open_below_limit(engine, bullish_bar):
     """Buy limit fills immediately when open price is below limit."""
-    order = LimitOrder(action="BUY", totalQuantity=100, lmtPrice=Decimal("149.00"), orderId=1)
+    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("149.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -110,7 +110,7 @@ def test_buy_limit_fills_at_open_when_open_below_limit(engine, bullish_bar):
 
 def test_buy_limit_fills_when_entire_bar_below_limit(engine, bullish_bar):
     """Buy limit fills when entire bar is below limit price."""
-    order = LimitOrder(action="BUY", totalQuantity=100, lmtPrice=Decimal("153.00"), orderId=1)
+    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("153.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -121,7 +121,7 @@ def test_buy_limit_fills_when_entire_bar_below_limit(engine, bullish_bar):
 
 def test_buy_limit_on_bearish_bar_fills_at_limit(engine, bearish_bar):
     """Buy limit on bearish bar fills when low touches limit."""
-    order = LimitOrder(action="BUY", totalQuantity=100, lmtPrice=Decimal("147.00"), orderId=1)
+    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("147.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -132,7 +132,7 @@ def test_buy_limit_on_bearish_bar_fills_at_limit(engine, bearish_bar):
 def test_buy_limit_on_bearish_bar_fills_at_open(engine, bearish_bar):
     """Buy limit on bearish bar fills at open when open below limit."""
     # bearish_bar: open=150, high=152, low=146, close=148
-    order = LimitOrder(action="BUY", totalQuantity=100, lmtPrice=Decimal("151.00"), orderId=1)
+    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("151.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -145,7 +145,7 @@ def test_buy_limit_on_bearish_bar_fills_at_open(engine, bearish_bar):
     #region Sell orders
 def test_sell_limit_fills_when_high_touches_limit(engine, bullish_bar):
     """Sell limit fills at limit price when bar high reaches it."""
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("151.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("151.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -156,7 +156,7 @@ def test_sell_limit_fills_when_high_touches_limit(engine, bullish_bar):
 
 def test_sell_limit_no_fill_when_high_below_limit(engine, bullish_bar):
     """Sell limit doesn't fill when bar high stays below limit price."""
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("153.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("153.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -164,7 +164,7 @@ def test_sell_limit_no_fill_when_high_below_limit(engine, bullish_bar):
 
 def test_sell_limit_fills_at_open_when_open_above_limit(engine, bullish_bar):
     """Sell limit fills immediately when open price is above limit."""
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("147.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("147.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -175,7 +175,7 @@ def test_sell_limit_fills_at_open_when_open_above_limit(engine, bullish_bar):
 
 def test_sell_limit_fills_when_entire_bar_above_limit(engine, bullish_bar):
     """Sell limit fills when entire bar is above limit price."""
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("145.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("145.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -186,7 +186,7 @@ def test_sell_limit_fills_when_entire_bar_above_limit(engine, bullish_bar):
 
 def test_sell_limit_no_fill_when_entire_bar_below_limit(engine, bullish_bar):
     """Sell limit doesn't fill when entire bar is below limit price."""
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("153.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("153.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -194,7 +194,7 @@ def test_sell_limit_no_fill_when_entire_bar_below_limit(engine, bullish_bar):
 
 def test_sell_limit_on_bearish_bar_fills_at_limit(engine, bearish_bar):
     """Sell limit on bearish bar fills when high touches limit."""
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("151.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("151.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -205,7 +205,7 @@ def test_sell_limit_on_bearish_bar_fills_at_limit(engine, bearish_bar):
 def test_sell_limit_on_bearish_bar_no_fill(engine, bearish_bar):
     """Sell limit on bearish bar doesn't fill when high below limit."""
     # bearish_bar: open=150, high=152, low=146, close=148
-    order = LimitOrder(action="SELL", totalQuantity=100, lmtPrice=Decimal("153.00"), orderId=1)
+    order = LimitOrder(action="SELL", totalQuantity=100, price=Decimal("153.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -218,7 +218,7 @@ def test_sell_limit_on_bearish_bar_no_fill(engine, bearish_bar):
     #region Buy orders
 def test_buy_stop_on_high_passes_stop(engine, bullish_bar):
     """Buy stop converts to market when bar high touches stop price."""
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("151.00"), orderId=1)
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("151.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -230,7 +230,7 @@ def test_buy_stop_on_high_passes_stop(engine, bullish_bar):
 
 def test_buy_stop_no_trigger(engine, bullish_bar):
     """Buy stop doesn't trigger when bar high stays below stop price."""
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("153.00"), orderId=1)
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("153.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -238,7 +238,7 @@ def test_buy_stop_no_trigger(engine, bullish_bar):
 
 def test_buy_stop_on_full_gap(engine, bullish_bar):
     """Buy stop triggers when entire bar is above stop price."""
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("145.00"), orderId=1)
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("145.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -251,7 +251,7 @@ def test_buy_stop_on_full_gap(engine, bullish_bar):
 def test_buy_stop_on_bearish_bar_fills_at_stop(engine, bearish_bar):
     """Buy stop on bearish bar fills at stop when high touches stop."""
     # bearish_bar: open=150, high=152, low=146, close=148
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("151.00"), orderId=1)
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("151.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -261,7 +261,7 @@ def test_buy_stop_on_bearish_bar_fills_at_stop(engine, bearish_bar):
 
 def test_buy_stop_on_bearish_bar_no_trigger(engine, bearish_bar):
     """Buy stop on bearish bar doesn't trigger when high below stop."""
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("153.00"), orderId=1)
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("153.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -272,7 +272,7 @@ def test_buy_stop_on_bearish_bar_no_trigger(engine, bearish_bar):
     #region Sell orders
 def test_sell_stop_low_passes_stop(engine, bullish_bar):
     """Sell stop converts to market when bar low touches stop price."""
-    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("147.00"), orderId=1)
+    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("147.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -284,7 +284,7 @@ def test_sell_stop_low_passes_stop(engine, bullish_bar):
 
 def test_sell_stop_no_trigger(engine, bullish_bar):
     """Sell stop doesn't trigger when bar low stays above stop price."""
-    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("145.00"), orderId=1)
+    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("145.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -292,7 +292,7 @@ def test_sell_stop_no_trigger(engine, bullish_bar):
 
 def test_sell_stop_on_full_gap(engine, bullish_bar):
     """Sell stop triggers when entire bar is below stop price."""
-    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("153.00"), orderId=1)
+    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("153.00"))
     
     fill = engine.execute(order, bullish_bar)
     
@@ -305,7 +305,7 @@ def test_sell_stop_on_full_gap(engine, bullish_bar):
 def test_sell_stop_on_bearish_bar_fills_at_stop(engine, bearish_bar):
     """Sell stop on bearish bar fills at stop when low touches stop."""
     # bearish_bar: open=150, high=152, low=146, close=148
-    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("147.00"), orderId=1)
+    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("147.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -315,7 +315,7 @@ def test_sell_stop_on_bearish_bar_fills_at_stop(engine, bearish_bar):
 
 def test_sell_stop_on_bearish_bar_fills_at_open_on_gap(engine, bearish_bar):
     """Sell stop on bearish bar fills at open when entire bar below stop (gap down)."""
-    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("153.00"), orderId=1)
+    order = StopOrder(action="SELL", totalQuantity=100, stopPrice=Decimal("153.00"))
     
     fill = engine.execute(order, bearish_bar)
     
@@ -336,8 +336,7 @@ def test_buy_stop_limit_f01_no_trigger(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("154.00"),
-        lmtPrice=Decimal("156.00"),
-        orderId=1
+        limitPrice=Decimal("156.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None
@@ -351,8 +350,7 @@ def test_buy_stop_limit_f02_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("151.00"),
-        lmtPrice=Decimal("156.00"),
-        orderId=1
+        limitPrice=Decimal("156.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -368,8 +366,7 @@ def test_buy_stop_limit_f03_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("149.00"),
-        lmtPrice=Decimal("156.00"),
-        orderId=1
+        limitPrice=Decimal("156.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -385,8 +382,7 @@ def test_buy_stop_limit_f04_fills_at_open(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("147.00"),
-        lmtPrice=Decimal("156.00"),
-        orderId=1
+        limitPrice=Decimal("156.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -403,8 +399,7 @@ def test_buy_stop_limit_f05_fills_at_open(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145.00"),
-        lmtPrice=Decimal("156.00"),
-        orderId=1
+        limitPrice=Decimal("156.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -420,8 +415,7 @@ def test_buy_stop_limit_f06_fills_at_open(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145.00"),
-        lmtPrice=Decimal("151.00"),
-        orderId=1
+        limitPrice=Decimal("151.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -437,8 +431,7 @@ def test_buy_stop_limit_f07_fills_at_open(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145.00"),
-        lmtPrice=Decimal("149.00"),
-        orderId=1
+        limitPrice=Decimal("149.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -454,8 +447,7 @@ def test_buy_stop_limit_f08_fills_at_limit(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145.00"),
-        lmtPrice=Decimal("147.00"),
-        orderId=1
+        limitPrice=Decimal("147.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -471,8 +463,7 @@ def test_buy_stop_limit_f09_no_fill(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145.00"),
-        lmtPrice=Decimal("145.50"),
-        orderId=1
+        limitPrice=Decimal("145.50")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None
@@ -486,8 +477,7 @@ def test_buy_stop_limit_f10_fills_at_open(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("147.00"),
-        lmtPrice=Decimal("151.00"),
-        orderId=1
+        limitPrice=Decimal("151.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -503,8 +493,7 @@ def test_buy_stop_limit_f11_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("148.50"),
-        lmtPrice=Decimal("149.00"),
-        orderId=1
+        limitPrice=Decimal("149.00")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -523,8 +512,7 @@ def test_buy_stop_limit_dip_f01_no_trigger(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),  # Stop above high
-        lmtPrice=Decimal("151"),
-        orderId=1
+        limitPrice=Decimal("151")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop=153 > high=152, never triggers
@@ -539,8 +527,7 @@ def test_buy_stop_limit_dip_f02_no_fill(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),  # Stop = high
-        lmtPrice=Decimal("151"),   # Limit between high and close (unreachable on normal pullback)
-        orderId=1
+        limitPrice=Decimal("151"),   # Limit between high and close (unreachable on normal pullback)
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Limit unreachable after trigger
@@ -554,8 +541,7 @@ def test_buy_stop_limit_dip_f03_no_fill(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("149"),
-        orderId=1
+        limitPrice=Decimal("149")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Per CSV: F3 shows "No fill"
@@ -570,8 +556,7 @@ def test_buy_stop_limit_dip_f04_no_fill(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("147"),
-        orderId=1
+        limitPrice=Decimal("147")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Per CSV: F4 shows "No fill"
@@ -585,8 +570,7 @@ def test_buy_stop_limit_dip_f05_no_fill(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("145"),   # Limit below low
-        orderId=1
+        limitPrice=Decimal("145"),   # Limit below low
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Limit < bar.low, unreachable
@@ -601,8 +585,7 @@ def test_buy_stop_limit_dip_f06_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("151"),  # Stop = close
-        lmtPrice=Decimal("145"),   # Limit below low (unreachable)
-        orderId=1
+        limitPrice=Decimal("145"),   # Limit below low (unreachable)
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -619,8 +602,7 @@ def test_buy_stop_limit_dip_f07_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("145"),
-        orderId=1
+        limitPrice=Decimal("145")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -637,8 +619,7 @@ def test_buy_stop_limit_dip_f08_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("145"),
-        orderId=1
+        limitPrice=Decimal("145")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -656,8 +637,7 @@ def test_buy_stop_limit_dip_f09_no_fill(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("144"),
-        orderId=1
+        limitPrice=Decimal("144")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -673,8 +653,7 @@ def test_buy_stop_limit_dip_f10_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("147"),
-        orderId=1
+        limitPrice=Decimal("147")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -692,8 +671,7 @@ def test_buy_stop_limit_dip_f11_fills_at_stop(engine, bullish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("148.5"),
-        orderId=1
+        limitPrice=Decimal("148.5")
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -712,8 +690,7 @@ def test_buy_stop_limit_bearish_f01_no_trigger(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("154"),
-        orderId=1
+        limitPrice=Decimal("154")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Stop=153 > high=152, never triggers
@@ -726,8 +703,7 @@ def test_buy_stop_limit_bearish_f02_fills_at_stop(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("156"),
-        orderId=1
+        limitPrice=Decimal("156")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -743,8 +719,7 @@ def test_buy_stop_limit_bearish_f03_fills_at_open(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("156"),
-        orderId=1
+        limitPrice=Decimal("156")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -759,8 +734,7 @@ def test_buy_stop_limit_bearish_f04_fills_at_open(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("156"),
-        orderId=1
+        limitPrice=Decimal("156")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -775,8 +749,7 @@ def test_buy_stop_limit_bearish_f05_fills_at_open(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("156"),
-        orderId=1
+        limitPrice=Decimal("156")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -791,8 +764,7 @@ def test_buy_stop_limit_bearish_f06_fills_at_open(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("151"),
-        orderId=1
+        limitPrice=Decimal("151")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -808,8 +780,7 @@ def test_buy_stop_limit_bearish_f07_fills_at_limit(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("149"),
-        orderId=1
+        limitPrice=Decimal("149")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -824,8 +795,7 @@ def test_buy_stop_limit_bearish_f08_fills_at_limit(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("147"),
-        orderId=1
+        limitPrice=Decimal("147")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -840,8 +810,7 @@ def test_buy_stop_limit_bearish_f09_no_fill(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("145.5"),
-        orderId=1
+        limitPrice=Decimal("145.5")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Limit < bar.low → unreachable
@@ -854,8 +823,7 @@ def test_buy_stop_limit_bearish_f10_fills_at_open(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("151"),
-        orderId=1
+        limitPrice=Decimal("151")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -871,8 +839,7 @@ def test_buy_stop_limit_bearish_f11_fills_at_limit(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("148.5"),
-        lmtPrice=Decimal("149"),
-        orderId=1
+        limitPrice=Decimal("149")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -892,8 +859,7 @@ def test_buy_stop_limit_bearish_dip_f01_no_trigger(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("151"),
-        orderId=1
+        limitPrice=Decimal("151")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Stop=153 > high=152, never triggers
@@ -907,8 +873,7 @@ def test_buy_stop_limit_bearish_dip_f02_no_fill(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("151"),
-        orderId=1
+        limitPrice=Decimal("151")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Per CSV: F2 shows "No fill"
@@ -921,8 +886,7 @@ def test_buy_stop_limit_bearish_dip_f03_no_fill(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("149"),
-        orderId=1
+        limitPrice=Decimal("149")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Per CSV: F3 shows "No fill"
@@ -935,8 +899,7 @@ def test_buy_stop_limit_bearish_dip_f04_no_fill(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("147"),
-        orderId=1
+        limitPrice=Decimal("147")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Per CSV: F4 shows "No fill"
@@ -949,8 +912,7 @@ def test_buy_stop_limit_bearish_dip_f05_no_fill(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("145"),
-        orderId=1
+        limitPrice=Decimal("145")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Limit below low, unreachable
@@ -964,8 +926,7 @@ def test_buy_stop_limit_bearish_dip_f06_fills_at_stop(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("145"),
-        orderId=1
+        limitPrice=Decimal("145")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -980,8 +941,7 @@ def test_buy_stop_limit_bearish_dip_f07_fills_at_stop(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("145"),
-        orderId=1
+        limitPrice=Decimal("145")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -996,8 +956,7 @@ def test_buy_stop_limit_bearish_dip_f08_fills_at_stop(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("145"),
-        orderId=1
+        limitPrice=Decimal("145")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1013,8 +972,7 @@ def test_buy_stop_limit_bearish_dip_f09_no_fill(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("144"),
-        orderId=1
+        limitPrice=Decimal("144")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -1027,8 +985,7 @@ def test_buy_stop_limit_bearish_dip_f10_fills_at_stop(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("147"),
-        orderId=1
+        limitPrice=Decimal("147")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1043,8 +1000,7 @@ def test_buy_stop_limit_bearish_dip_f11_fills_at_stop(engine, bearish_bar):
         action="BUY",
         totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("148.5"),
-        orderId=1
+        limitPrice=Decimal("148.5")
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1059,10 +1015,9 @@ def test_sell_stop_limit_f01_no_trigger(engine, bearish_bar):
     """F1: High > Open > Close > Low > Stop > Limit -> no fill (stop never triggers)"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("144"),
+        limitPrice=Decimal("144"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1074,10 +1029,9 @@ def test_sell_stop_limit_f02_fills_at_stop(engine, bearish_bar):
     """F2: High > Open > Close > Stop > Low > Limit -> fills at stop"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1091,10 +1045,9 @@ def test_sell_stop_limit_f03_fills_at_stop(engine, bearish_bar):
     """F3: High > Open > Stop > Close > Low > Limit -> fills at stop"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1108,10 +1061,9 @@ def test_sell_stop_limit_f04_fills_at_open(engine, bearish_bar):
     """F4: High > Stop > Open > Close > Low > Limit -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1125,10 +1077,9 @@ def test_sell_stop_limit_f05_fills_at_open(engine, bearish_bar):
     """F5: Stop > High > Open > Close > Low > Limit -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1142,10 +1093,9 @@ def test_sell_stop_limit_f06_fills_at_open(engine, bearish_bar):
     """F6: Stop > High > Open > Close > Limit > Low -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("147"),
+        limitPrice=Decimal("147"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1159,10 +1109,9 @@ def test_sell_stop_limit_f07_fills_at_open(engine, bearish_bar):
     """F7: Stop > High > Open > Limit > Close > Low -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1176,10 +1125,9 @@ def test_sell_stop_limit_f08_fills_at_limit(engine, bearish_bar):
     """F8: Stop > High > Limit > Open > Close > Low -> fills at limit"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("151"),
+        limitPrice=Decimal("151"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1193,10 +1141,9 @@ def test_sell_stop_limit_f09_no_fill(engine, bearish_bar):
     """F9: Stop > Limit > High > Open > Close > Low -> no fill (limit unreachable)"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("154"),
-        lmtPrice=Decimal("153"),
+        limitPrice=Decimal("153"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1208,10 +1155,9 @@ def test_sell_stop_limit_f10_fills_at_open(engine, bearish_bar):
     """F10: High > Stop > Open > Close > Limit > Low -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("147"),
+        limitPrice=Decimal("147"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1225,10 +1171,9 @@ def test_sell_stop_limit_f11_fills_at_stop(engine, bearish_bar):
     """F11: High > Open > Stop > Limit > Close > Low -> fills at stop"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("149.5"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     
     fill = engine.execute(order, bearish_bar)
@@ -1249,9 +1194,8 @@ def test_sell_stop_limit_bearish_dip_f01_no_trigger(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("144"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Stop < low, never triggers
@@ -1263,9 +1207,8 @@ def test_sell_stop_limit_bearish_dip_f02_no_fill(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("147"),
+        limitPrice=Decimal("147"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Per CSV: F2 shows "No fill"
@@ -1277,9 +1220,8 @@ def test_sell_stop_limit_bearish_dip_f03_no_fill(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Per CSV: F3 shows "No fill"
@@ -1291,9 +1233,8 @@ def test_sell_stop_limit_bearish_dip_f04_no_fill(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("151"),
+        limitPrice=Decimal("151"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Per CSV: F4 shows "No fill"
@@ -1305,9 +1246,8 @@ def test_sell_stop_limit_bearish_dip_f05_no_fill(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("153"),
+        limitPrice=Decimal("153"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Limit above high, unreachable
@@ -1320,9 +1260,8 @@ def test_sell_stop_limit_bearish_dip_f06_fills_at_stop(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("153"),
+        limitPrice=Decimal("153"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1336,9 +1275,8 @@ def test_sell_stop_limit_bearish_dip_f07_fills_at_stop(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("153"),
+        limitPrice=Decimal("153"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1352,9 +1290,8 @@ def test_sell_stop_limit_bearish_dip_f08_fills_at_stop(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("153"),
+        limitPrice=Decimal("153"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1369,9 +1306,8 @@ def test_sell_stop_limit_bearish_dip_f09_no_fill(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("154"),
+        limitPrice=Decimal("154"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is None  # Stop above bar.high, never triggers
@@ -1383,9 +1319,8 @@ def test_sell_stop_limit_bearish_dip_f10_fills_at_stop(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("151"),
+        limitPrice=Decimal("151"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1399,9 +1334,8 @@ def test_sell_stop_limit_bearish_dip_f11_fills_at_stop(engine, bearish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("148.5"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bearish_bar)
     assert fill is not None
@@ -1418,10 +1352,9 @@ def test_sell_stop_limit_bullish_f01_no_fill(engine, bullish_bar):
     # For protective SELL: stop should be BELOW price
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("145"),  # Stop below low
-        lmtPrice=Decimal("144"),
+        limitPrice=Decimal("144"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1433,10 +1366,9 @@ def test_sell_stop_limit_bullish_f02_fills_at_trigger(engine, bullish_bar):
     # bullish_bar: open=148, high=152, low=146, close=150
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("147"),  # Stop = low
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1449,10 +1381,9 @@ def test_sell_stop_limit_bullish_f03_fills_at_trigger(engine, bullish_bar):
     """F3: High > Close > Stop > Open > Low > Limit -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1465,10 +1396,9 @@ def test_sell_stop_limit_bullish_f04_fills_at_trigger(engine, bullish_bar):
     """F4: High > Stop > Close > Open > Low > Limit -> fills at open"""
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("145"),
+        limitPrice=Decimal("145"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1482,10 +1412,9 @@ def test_sell_stop_limit_bullish_f05_fills_at_trigger(engine, bullish_bar):
     # bullish_bar: open=148, high=152, low=146, close=150
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),  # Stop between low and close
-        lmtPrice=Decimal("145")
+        limitPrice=Decimal("145")
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1500,10 +1429,9 @@ def test_sell_stop_limit_bullish_f06_fills_at_trigger(engine, bullish_bar):
 
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("147"),
+        limitPrice=Decimal("147"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1518,10 +1446,9 @@ def test_sell_stop_limit_bullish_f07_fills_at_limit(engine, bullish_bar):
 
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1536,10 +1463,9 @@ def test_sell_stop_limit_bullish_f08_fills_at_limit(engine, bullish_bar):
 
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("151"),
+        limitPrice=Decimal("151"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1554,10 +1480,9 @@ def test_sell_stop_limit_bullish_f09_no_fill(engine, bullish_bar):
     # Formation: Stop(155) > Limit(153) > High(152) - bar entirely below stop
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("155"),
-        lmtPrice=Decimal("153"),
+        limitPrice=Decimal("153"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1570,10 +1495,9 @@ def test_sell_stop_limit_bullish_f10_fills_at_open(engine, bullish_bar):
     # Formation: High(152) > Stop(151) > Close(150) > Open(148) > Limit(147) > Low(146)
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("151"),
-        lmtPrice=Decimal("147"),
+        limitPrice=Decimal("147"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1588,10 +1512,9 @@ def test_sell_stop_limit_bullish_f11_fills_at_limit(engine, bullish_bar):
     # Formation: High(152) > Close(150) > Stop(149) > Limit(148.5) > Open(148) > Low(146)
     order = StopLimitOrder(
         action="SELL", 
-        totalQuantity=100, 
-        orderId=1,
+        totalQuantity=100,
         stopPrice=Decimal("149"),
-        lmtPrice=Decimal("148.5"),
+        limitPrice=Decimal("148.5"),
     )
     
     fill = engine.execute(order, bullish_bar)
@@ -1612,9 +1535,8 @@ def test_sell_stop_limit_bullish_dip_f01_no_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("140"),
-        lmtPrice=Decimal("154"),
+        limitPrice=Decimal("154"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -1627,9 +1549,8 @@ def test_sell_stop_limit_bullish_dip_f02_no_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("141"),
-        lmtPrice=Decimal("154"),
+        limitPrice=Decimal("154"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -1642,9 +1563,8 @@ def test_sell_stop_limit_bullish_dip_f03_no_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -1657,9 +1577,8 @@ def test_sell_stop_limit_bullish_dip_f04_no_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -1672,9 +1591,8 @@ def test_sell_stop_limit_bullish_dip_f05_no_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("145"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop below bar.low, never triggers
@@ -1687,9 +1605,8 @@ def test_sell_stop_limit_bullish_dip_f06_fills_at_stop(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -1702,9 +1619,8 @@ def test_sell_stop_limit_bullish_dip_f07_fills_at_stop(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("148.5"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -1717,9 +1633,8 @@ def test_sell_stop_limit_bullish_dip_f08_fills_at_stop(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("150.5"),
-        lmtPrice=Decimal("151"),
+        limitPrice=Decimal("151"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -1732,9 +1647,8 @@ def test_sell_stop_limit_bullish_dip_f09_no_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("153"),
-        lmtPrice=Decimal("154"),
+        limitPrice=Decimal("154"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is None  # Stop above high, never triggers (bar.low > stop)
@@ -1746,9 +1660,8 @@ def test_sell_stop_limit_bullish_dip_f10_fills_at_stop(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("147"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -1761,9 +1674,8 @@ def test_sell_stop_limit_bullish_dip_f11_fills_at_stop(engine, bullish_bar):
     order = StopLimitOrder(
         action="SELL",
         totalQuantity=100,
-        orderId=1,
         stopPrice=Decimal("148.5"),
-        lmtPrice=Decimal("149"),
+        limitPrice=Decimal("149"),
     )
     fill = engine.execute(order, bullish_bar)
     assert fill is not None
@@ -1783,7 +1695,7 @@ def test_large_order_partial_fill_by_volume():
         close=Decimal("150.00"),
         volume=50,  # Only 50 shares available
     )
-    order = MarketOrder(action="BUY", totalQuantity=100, orderId=1)
+    order = MarketOrder(action="BUY", totalQuantity=100)
     
     engine = ExecutionEngine()
     fill = engine.execute(order, bar)
@@ -1804,7 +1716,7 @@ def test_day_order_expires_after_market_close():
         close=Decimal("150.00"),
         volume=1000000,
     )
-    order = MarketOrder(action="BUY", totalQuantity=100, orderId=1, tif="DAY")
+    order = MarketOrder(action="BUY", totalQuantity=100, tif="DAY")
     
     fill = engine.execute(order, bar)
     
