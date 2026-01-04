@@ -41,7 +41,7 @@ Each section covers a specific scenario (action type × bar direction × order c
 | F6        | High (@205)   | Limit (@200) | Close (@195) | Open (@175)   | Low (@165)   | Stop (@100)| Open (175)   |
 | F7        | High (@220)   | Close (@210) | Limit (@200) | Open (@190)   | Low (@180)   | Stop (@100)| Open (190)   |
 | F8        | High (@235)   | Close (@225) | Open (@205)  | Limit (@200)  | Low (@195)   | Stop (@100)| Limit (200)  |
-| F9        | High (@250)   | Close (@240) | Open (@220)  | Low (@210)    | Limit (@200) | Stop (@100)| No fill      |
+| F9        | High (@250)   | Close (@240) | Open (@220)  | Low (@210)    | Limit (@200) | Stop (@100)| Partial fill      |
 | F10       | High (@205)   | Limit (@200) | Close (@195) | Open (@105)   | Stop (@100)  | Low (@95)  | Open (105)   |
 | F11       | High (@215)   | Close (@205) | Limit (@200) | Stop (@100)   | Open (@95)   | Low (@85)  | Stop (100)   |
 
@@ -63,7 +63,7 @@ Each section covers a specific scenario (action type × bar direction × order c
 | F6        | High (@205)   | Limit (@200) | Open (@195)  | Close (@175)  | Low (@165)   | Stop (@100)| Open (195)   |
 | F7        | High (@220)   | Open (@210)  | Limit (@200) | Close (@190)  | Low (@180)   | Stop (@100)| Limit (200)  |
 | F8        | High (@235)   | Open (@225)  | Close (@205) | Limit (@200)  | Low (@195)   | Stop (@100)| Limit (200)  |
-| F9        | High (@250)   | Open (@240)  | Close (@220) | Low (@210)    | Limit (@200) | Stop (@100)| No fill      |
+| F9        | High (@250)   | Open (@240)  | Close (@220) | Low (@210)    | Limit (@200) | Stop (@100)| Partial fill      |
 | F10       | High (@205)   | Limit (@200) | Open (@195)  | Close (@105)  | Stop (@100)  | Low (@95)  | Open (195)   |
 | F11       | High (@215)   | Open (@205)  | Limit (@200) | Stop (@100)   | Close (@95)  | Low (@85)  | Limit (200)  |
 
@@ -83,12 +83,12 @@ Each section covers a specific scenario (action type × bar direction × order c
 | F3        | Stop (@200)   | High (@120)  | Close (@110) | Limit (@100)  | Open (@90)   | Low (@80)  | No fill      |
 | F4        | Stop (@200)   | High (@135)  | Close (@125) | Open (@105)   | Limit (@100) | Low (@95)  | No fill      |
 | F5        | Stop (@200)   | High (@170)  | Close (@160) | Open (@140)   | Low (@130)   | Limit (@100)| No fill      |
-| F6        | High (@205)   | Stop (@200)  | Close (@195) | Open (@175)   | Low (@165)   | Limit (@100)| Stop (200)   |
-| F7        | High (@220)   | Close (@210) | Stop (@200)  | Open (@190)   | Low (@180)   | Limit (@100)| Stop (200)   |
-| F8        | High (@235)   | Close (@225) | Open (@205)  | Stop (@200)   | Low (@195)   | Limit (@100)| Stop (200)   |
-| F9        | High (@250)   | Close (@240) | Open (@220)  | Low (@210)    | Stop (@200)  | Limit (@100)| No fill      |
-| F10       | High (@205)   | Stop (@200)  | Close (@195) | Open (@105)   | Limit (@100) | Low (@95)  | Stop (200)   |
-| F11       | High (@215)   | Close (@205) | Stop (@200)  | Limit (@100)  | Open (@95)   | Low (@85)  | Stop (200)   |
+| F6        | High (@205)   | Stop (@200)  | Close (@195) | Open (@175)   | Low (@165)   | Limit (@100)| Partial fill (Stop 200)   |
+| F7        | High (@220)   | Close (@210) | Stop (@200)  | Open (@190)   | Low (@180)   | Limit (@100)| Partial fill (Stop 200)   |
+| F8        | High (@235)   | Close (@225) | Open (@205)  | Stop (@200)   | Low (@195)   | Limit (@100)| Partial fill (Open 205)   |
+| F9        | High (@250)   | Close (@240) | Open (@220)  | Low (@210)    | Stop (@200)  | Limit (@100)| Partial fill (Open 220)   |
+| F10       | High (@205)   | Stop (@200)  | Close (@195) | Open (@105)   | Limit (@100) | Low (@95)  | Limit (100)   |
+| F11       | High (@215)   | Close (@205) | Stop (@200)  | Limit (@100)  | Open (@95)   | Low (@85)  | Limit (100)   |
 
 ---
 
@@ -105,12 +105,12 @@ Each section covers a specific scenario (action type × bar direction × order c
 | F3        | Stop (@200)   | High (@120)  | Open (@110)  | Limit (@100)  | Close (@90)  | Low (@80)  | No fill      |
 | F4        | Stop (@200)   | High (@135)  | Open (@125)  | Close (@105)  | Limit (@100) | Low (@95)  | No fill      |
 | F5        | Stop (@200)   | High (@170)  | Open (@160)  | Close (@140)  | Low (@130)   | Limit (@100)| No fill      |
-| F6        | High (@205)   | Stop (@200)  | Open (@195)  | Close (@175)  | Low (@165)   | Limit (@100)| Stop (200)   |
-| F7        | High (@220)   | Open (@210)  | Stop (@200)  | Close (@190)  | Low (@180)   | Limit (@100)| Stop (200)   |
-| F8        | High (@235)   | Open (@225)  | Close (@205) | Stop (@200)   | Low (@195)   | Limit (@100)| Stop (200)   |
-| F9        | High (@250)   | Open (@240)  | Close (@220) | Low (@210)    | Stop (@200)  | Limit (@100)| No fill      |
-| F10       | High (@205)   | Stop (@200)  | Open (@195)  | Close (@105)  | Limit (@100) | Low (@95)  | Stop (200)   |
-| F11       | High (@215)   | Open (@205)  | Stop (@200)  | Limit (@100)  | Close (@95)  | Low (@85)  | Stop (200)   |
+| F6        | High (@205)   | Stop (@200)  | Open (@195)  | Close (@175)  | Low (@165)   | Limit (@100)| Partial fill (Stop 200)   |
+| F7        | High (@220)   | Open (@210)  | Stop (@200)  | Close (@190)  | Low (@180)   | Limit (@100)| Partial fill (Open 210)   |
+| F8        | High (@235)   | Open (@225)  | Close (@205) | Stop (@200)   | Low (@195)   | Limit (@100)| Partial fill (Open 225)   |
+| F9        | High (@250)   | Open (@240)  | Close (@220) | Low (@210)    | Stop (@200)  | Limit (@100)| Partial fill (Open 240)   |
+| F10       | High (@205)   | Stop (@200)  | Open (@195)  | Close (@105)  | Limit (@100) | Low (@95)  | Limit (100)   |
+| F11       | High (@215)   | Open (@205)  | Stop (@200)  | Limit (@100)  | Close (@95)  | Low (@85)  | Limit (100)   |
 
 ---
 
@@ -149,12 +149,12 @@ Each section covers a specific scenario (action type × bar direction × order c
 | F3        | High (@220)   | Close (@210) | Limit (@200) | Open (@190)   | Low (@180)   | Stop (@100)| No fill     |
 | F4        | High (@205)   | Close (@195) | Limit (@200) | Open (@175)   | Low (@165)   | Stop (@100)| No fill     |
 | F5        | High (@170)   | Close (@160) | Limit (@200) | Open (@140)   | Low (@130)   | Stop (@100)| No fill     |
-| F6        | High (@135)   | Close (@125) | Limit (@200) | Open (@105)   | Stop (@100)  | Low (@95)  | Stop (100)  |
-| F7        | High (@120)   | Close (@110) | Limit (@200) | Stop (@100)   | Open (@90)   | Low (@80)  | Stop (100)  |
-| F8        | High (@105)   | Limit (@200) | Stop (@100)  | Close (@95)   | Open (@75)   | Low (@65)  | Stop (100)  |
-| F9        | Limit (@200)  | Stop (@100)  | High (@90)   | Close (@80)   | Open (@60)   | Low (@50)  | No fill     |
-| F10       | High (@205)   | Limit (@200) | Close (@195) | Open (@105)   | Stop (@100)  | Low (@95)  | Stop (100)  |
-| F11       | High (@215)   | Close (@205) | Limit (@200) | Stop (@100)   | Open (@95)   | Low (@85)  | Stop (100)  |
+| F6        | High (@135)   | Close (@125) | Limit (@200) | Open (@105)   | Stop (@100)  | Low (@95)  | Partial fill (Stop 100)  |
+| F7        | High (@120)   | Close (@110) | Limit (@200) | Stop (@100)   | Open (@90)   | Low (@80)  | Partial fill (Open 90)  |
+| F8        | High (@105)   | Limit (@200) | Stop (@100)  | Close (@95)   | Open (@75)   | Low (@65)  | Partial fill (Open 75)  |
+| F9        | Limit (@200)  | Stop (@100)  | High (@90)   | Close (@80)   | Open (@60)   | Low (@50)  | Partial fill (Open 60)     |
+| F10       | High (@205)   | Limit (@200) | Close (@195) | Open (@105)   | Stop (@100)  | Low (@95)  | Limit (200)  |
+| F11       | High (@215)   | Close (@205) | Limit (@200) | Stop (@100)   | Open (@95)   | Low (@85)  | Limit (200)  |
 
 ---
 
@@ -193,11 +193,11 @@ Each section covers a specific scenario (action type × bar direction × order c
 | F3        | High (@220)   | Open (@210)  | Limit (@200) | Close (@190)  | Low (@180)   | Stop (@100)| No fill     |
 | F4        | High (@205)   | Limit (@200) | Open (@195)  | Close (@175)  | Low (@165)   | Stop (@100)| No fill     |
 | F5        | Limit (@200)  | High (@170)  | Open (@160)  | Close (@140)  | Low (@130)   | Stop (@100)| No fill     |
-| F6        | Limit (@200)  | High (@135)  | Open (@125)  | Close (@105)  | Stop (@100)  | Low (@95)  | Stop (100)  |
-| F7        | Limit (@200)  | High (@120)  | Open (@110)  | Stop (@100)   | Close (@90)  | Low (@80)  | Stop (100)  |
-| F8        | Limit (@200)  | High (@105)  | Stop (@100)  | Open (@95)    | Close (@75)  | Low (@65)  | Stop (100)  |
-| F9        | Limit (@200)  | Stop (@100)  | High (@90)   | Open (@80)    | Close (@60)  | Low (@50)  | No fill     |
-| F10       | High (@205)   | Limit (@200) | Open (@195)  | Close (@105)  | Stop (@100)  | Low (@95)  | Stop (100)  |
-| F11       | High (@215)   | Open (@205)  | Limit (@200) | Stop (@100)   | Close (@95)  | Low (@85)  | Stop (100)  |
+| F6        | Limit (@200)  | High (@135)  | Open (@125)  | Close (@105)  | Stop (@100)  | Low (@95)  | Partial fill (Stop 100)  |
+| F7        | Limit (@200)  | High (@120)  | Open (@110)  | Stop (@100)   | Close (@90)  | Low (@80)  | Partial fill (Stop 100)  |
+| F8        | Limit (@200)  | High (@105)  | Stop (@100)  | Open (@95)    | Close (@75)  | Low (@65)  | Partial fill (Open 95)  |
+| F9        | Limit (@200)  | Stop (@100)  | High (@90)   | Open (@80)    | Close (@60)  | Low (@50)  | Partial fill (Open 80)     |
+| F10       | High (@205)   | Limit (@200) | Open (@195)  | Close (@105)  | Stop (@100)  | Low (@95)  | Limit (200)  |
+| F11       | High (@215)   | Open (@205)  | Limit (@200) | Stop (@100)   | Close (@95)  | Low (@85)  | Limit (200)  |
 
 ---

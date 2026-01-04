@@ -33,10 +33,11 @@ bar_type = "bullish" if "bullish" in csv_file.lower() else "bearish"
 
 # Parse fill information to extract fill price
 def parse_fill(fill_str):
-    """Extract fill price from fill string like 'Stop (100)' or 'No fill'"""
+    """Extract fill price from fill string like 'Stop (100)', 'Open (205)', or 'No fill'"""
     if "No fill" in fill_str:
         return 0
-    match = re.search(r'\((\d+)\)', fill_str)
+    # Match either "(digits)" or "(word digits)"
+    match = re.search(r'\((?:\w+\s+)?(\d+)\)', fill_str)
     return int(match.group(1)) if match else 0
 
 df['fill_price'] = df['Fill'].apply(parse_fill)
@@ -69,15 +70,23 @@ fig.add_hline(y=stop_price, line_dash="dash", line_color="orange", line_width=3)
 # Add Limit line (brighter green dashed)
 fig.add_hline(y=limit_price, line_dash="dash", line_color="#2EFF57", line_width=3)
 
-# Add markers at exact fill prices (single half-transparent white marker per formation, only where fill_price > 0)
+# Add markers at exact fill prices (single half-transparent marker per formation, only where fill_price > 0)
 markers_x = []
 markers_y = []
+partial_markers_x = []
+partial_markers_y = []
 
 for idx, row in df.iterrows():
     if row["fill_price"] > 0:
-        markers_x.append(row["x"])
-        markers_y.append(row["fill_price"])
+        # Check if this is a partial fill
+        if "Partial fill" in row["Fill"]:
+            partial_markers_x.append(row["x"])
+            partial_markers_y.append(row["fill_price"])
+        else:
+            markers_x.append(row["x"])
+            markers_y.append(row["fill_price"])
 
+# Add white markers for complete fills
 fig.add_trace(
     go.Scatter(
         x=markers_x,
@@ -89,31 +98,56 @@ fig.add_trace(
     )
 )
 
+# Add yellowish markers for partial fills
+fig.add_trace(
+    go.Scatter(
+        x=partial_markers_x,
+        y=partial_markers_y,
+        mode="markers",
+        marker=dict(size=20, color="rgba(255, 215, 0, 0.6)", line=dict(width=0)),  # Yellowish/gold color
+        showlegend=False,
+        hoverinfo="skip",
+    )
+)
+
 # Add fill labels dynamically based on fill information
 for idx, row in df.iterrows():
-    if row['fill_price'] > 0:
+    formation = row['Formation']
+    fill_str = row['Fill']
+    
+    # Handle different fill types
+    if "No fill" in fill_str:
+        fill_text = "No fill"
+        # Position above the bar for no-fill cases
+        y_pos = row['High'] + 15
+    elif "Partial fill" in fill_str:
+        # Extract price from partial fill like "Partial fill (Stop 200)"
+        fill_text = "Partial fill"
+        y_pos = row['Low'] - 15
+    elif row['fill_price'] > 0:
         # Extract fill type from Fill column
         fill_type = row['Fill'].split('(')[0].strip()
         fill_text = f"Fill@{fill_type}"
         
         # Position labels based on formation
-        formation = row['Formation']
         if formation in ['F2', 'F3', 'F4', 'F5']:
             y_pos = row['High'] + 15
         elif formation in ['F6', 'F7', 'F8']:
             y_pos = row['Low'] - 15
         else:  # F10, F11
             y_pos = (row['High'] + row['Low']) / 2
-        
-        fig.add_annotation(
-            x=formation,
-            y=y_pos,
-            text=fill_text,
-            showarrow=False,
-            font=dict(size=18, color="white", family="Arial"),
-            bgcolor="rgba(0,0,0,0.5)",
-            borderpad=8,
-        )
+    else:
+        continue  # Skip if no valid fill information
+    
+    fig.add_annotation(
+        x=formation,
+        y=y_pos,
+        text=fill_text,
+        showarrow=False,
+        font=dict(size=18, color="white", family="Arial"),
+        bgcolor="rgba(0,0,0,0.5)",
+        borderpad=8,
+    )
 
 # Add Stop label on Y-axis
 fig.add_annotation(
