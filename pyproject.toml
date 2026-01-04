@@ -1,0 +1,25 @@
+[project]
+name = "xsim"
+version = "0.1.0"
+description = "Stock exchange execution simulator core"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pydantic"
+]
+
+[project.optional-dependencies]
+dev = [
+    "plotly",
+    "pandas"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
