@@ -26,6 +26,7 @@ XSim is an **OHLCV-based execution simulator** for backtesting trading strategie
 3.  **Testing**: Use `pytest`. Tests should be simple and readable. Use `@pytest.mark.xfail` for planned features not yet implemented.
 4.  **Core Logic Purity**: Core functions must NOT perform input validation. Assume inputs are valid. Validation belongs in the external gateway/wrapper layer.
 5.  **IB Compatibility**: Models follow Interactive Brokers naming conventions (camelCase: `orderId`, `totalQuantity`, `lmtPrice`, `auxPrice`). Use `UNSET_DOUBLE` and `UNSET_INTEGER` sentinels for optional numeric fields.
+6. **Python virtual environment**: make sure running `soruce ./.venv/bin/activate` activates the correct environment with all dependencies installed before running or testing code in a new terminal session.
 
 ## Project Structure
 1.  **Source Layout**: Code lives in `src/` directory organized by domain (e.g., `src/models/order.py`).

@@ -29,6 +29,7 @@ XSim relies on OHLC Data to simulate the inner motion of prices within single da
 
 # Current Execution algorithm assumptions
 - No slippage
+- No partial fills
 - Aggressive approach - Order will be filled if there's a possible path between order's formation and the candlebar.
 
 # Use cases

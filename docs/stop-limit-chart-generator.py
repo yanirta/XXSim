@@ -40,7 +40,8 @@ def parse_fill(fill_str):
     match = re.search(r'\((?:\w+\s+)?(\d+)\)', fill_str)
     return int(match.group(1)) if match else 0
 
-df['fill_price'] = df['Fill'].apply(parse_fill)
+df['stop_fill_price'] = df['Stop Fill'].apply(parse_fill)
+df['limit_fill_price'] = df['Limit Fill'].apply(parse_fill)
 df['x'] = df['Formation']
 
 fig = go.Figure()
@@ -70,41 +71,52 @@ fig.add_hline(y=stop_price, line_dash="dash", line_color="orange", line_width=3)
 # Add Limit line (brighter green dashed)
 fig.add_hline(y=limit_price, line_dash="dash", line_color="#2EFF57", line_width=3)
 
-# Add markers at exact fill prices (single half-transparent marker per formation, only where fill_price > 0)
-markers_x = []
-markers_y = []
-partial_markers_x = []
-partial_markers_y = []
+# Add markers at exact fill prices
+stop_markers_x = []
+stop_markers_y = []
+limit_markers_x = []
+limit_markers_y = []
 
 for idx, row in df.iterrows():
-    if row["fill_price"] > 0:
-        # Check if this is a partial fill
-        if "Partial fill" in row["Fill"]:
-            partial_markers_x.append(row["x"])
-            partial_markers_y.append(row["fill_price"])
-        else:
-            markers_x.append(row["x"])
-            markers_y.append(row["fill_price"])
+    # Add stop fill markers (square yellowish markers)
+    if row["stop_fill_price"] > 0:
+        stop_markers_x.append(row["x"])
+        stop_markers_y.append(row["stop_fill_price"])
+    
+    # Add limit fill markers (circular white markers)
+    if row["limit_fill_price"] > 0:
+        limit_markers_x.append(row["x"])
+        limit_markers_y.append(row["limit_fill_price"])
 
-# Add white markers for complete fills
+# Add yellowish square markers for stop fills (behind)
 fig.add_trace(
     go.Scatter(
-        x=markers_x,
-        y=markers_y,
+        x=stop_markers_x,
+        y=stop_markers_y,
         mode="markers",
-        marker=dict(size=20, color="rgba(255, 255, 255, 0.5)", line=dict(width=0)),
+        marker=dict(
+            size=20, 
+            color="rgba(255, 215, 0, 0.6)",  # Yellowish/gold color
+            symbol="square",
+            line=dict(width=0)
+        ),
         showlegend=False,
         hoverinfo="skip",
     )
 )
 
-# Add yellowish markers for partial fills
+# Add white circular markers for limit fills (in front)
 fig.add_trace(
     go.Scatter(
-        x=partial_markers_x,
-        y=partial_markers_y,
+        x=limit_markers_x,
+        y=limit_markers_y,
         mode="markers",
-        marker=dict(size=20, color="rgba(255, 215, 0, 0.6)", line=dict(width=0)),  # Yellowish/gold color
+        marker=dict(
+            size=20, 
+            color="rgba(255, 255, 255, 0.5)",
+            symbol="circle",
+            line=dict(width=0)
+        ),
         showlegend=False,
         hoverinfo="skip",
     )
@@ -113,31 +125,39 @@ fig.add_trace(
 # Add fill labels dynamically based on fill information
 for idx, row in df.iterrows():
     formation = row['Formation']
-    fill_str = row['Fill']
+    stop_fill = row['Stop Fill']
+    limit_fill = row['Limit Fill']
     
-    # Handle different fill types
-    if "No fill" in fill_str:
-        fill_text = "No fill"
-        # Position above the bar for no-fill cases
+    # Determine fill status
+    stop_filled = stop_fill != "No fill" and row['stop_fill_price'] > 0
+    limit_filled = limit_fill != "No fill" and row['limit_fill_price'] > 0
+    
+    # Position labels based on formation
+    if formation in ['F2', 'F3', 'F4', 'F5']:
         y_pos = row['High'] + 15
-    elif "Partial fill" in fill_str:
-        # Extract price from partial fill like "Partial fill (Stop 200)"
-        fill_text = "Partial fill"
+    elif formation in ['F6', 'F7', 'F8']:
         y_pos = row['Low'] - 15
-    elif row['fill_price'] > 0:
-        # Extract fill type from Fill column
-        fill_type = row['Fill'].split('(')[0].strip()
+    else:  # F1, F9, F10, F11
+        if not stop_filled and not limit_filled:
+            y_pos = row['High'] + 15  # No fill - above
+        elif stop_filled and not limit_filled:
+            y_pos = row['Low'] - 15  # Partial - below
+        else:
+            y_pos = (row['High'] + row['Low']) / 2  # Complete fill - middle
+    
+    # Create label text
+    if not stop_filled and not limit_filled:
+        fill_text = "No fill"
+    elif stop_filled and not limit_filled:
+        # Extract fill type from Stop Fill column
+        fill_type = stop_fill.split('(')[0].strip()
+        fill_text = f"Partial@{fill_type}"
+    elif limit_filled:
+        # Extract fill type from Limit Fill column
+        fill_type = limit_fill.split('(')[0].strip()
         fill_text = f"Fill@{fill_type}"
-        
-        # Position labels based on formation
-        if formation in ['F2', 'F3', 'F4', 'F5']:
-            y_pos = row['High'] + 15
-        elif formation in ['F6', 'F7', 'F8']:
-            y_pos = row['Low'] - 15
-        else:  # F10, F11
-            y_pos = (row['High'] + row['Low']) / 2
     else:
-        continue  # Skip if no valid fill information
+        continue
     
     fig.add_annotation(
         x=formation,
@@ -159,8 +179,6 @@ fig.add_annotation(
     xref="paper",
     yref="y",
     font=dict(size=18, color="white", family="Arial"),
-    # bgcolor="black",
-    # borderpad=6,
 )
 
 # Add Limit label on Y-axis
@@ -173,8 +191,6 @@ fig.add_annotation(
     xref="paper",
     yref="y",
     font=dict(size=18, color="white", family="Arial"),
-    # bgcolor="black",
-    # borderpad=0,
 )
 
 # Update layout with clean TradingView style

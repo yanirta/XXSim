@@ -52,3 +52,4 @@ class Fill(NamedTuple):
     execution: Execution
     commissionReport: CommissionReport
     time: datetime
+    parentId: int = 0

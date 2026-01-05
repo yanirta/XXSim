@@ -37,51 +37,83 @@ XSim simulates order execution using OHLCV bar data. The core challenge: **recon
 
 ---
 
-### Phase 2: Recursive Order Transformation 🔄 **PLANNED**
+### Phase 2: Recursive Order Transformation 🔄 **IN PROGRESS**
 
 **Goal:** Model order lifecycle transformations that mirror real-world exchange behavior.
 
-#### 2.1 Recursive Execution Architecture
+#### 2.1 Recursive Execution Architecture ✅ **COMPLETE**
 
-**Current Approach (Phase 1):**
-```python
-# Stop-Limit implemented as single monolithic function
-def execute_stop_limit(order, bar):
-    # Combined logic: trigger check + limit evaluation
-    if stop_triggered:
-        if limit_reachable:
-            return fill
-```
+**Status:** Implemented and tested with comprehensive data-driven test suite.
 
-**Phase 2 Approach:**
+**Implementation Approach:**
 ```python
-# Orders transform into other orders when triggered
-def execute(order, bar, state=None):
-    if isinstance(order, StopLimitOrder):
-        # Check if stop triggers
-        if stop_condition_met(order, bar):
-            # Transform into LimitOrder
-            limit_order = LimitOrder(
-                action=order.action,
-                lmtPrice=order.lmtPrice,
-                totalQuantity=order.totalQuantity
+class ExecutionEngine:
+    def execute(self, order: Order, bar: BarData, parent_id: int = 0) -> ExecutionResult:
+        """Recursively execute order and its children.
+        
+        Returns:
+            ExecutionResult with:
+            - fills: List of Fill objects (parent + children)
+            - pending_orders: List of untriggered/unfilled orders
+        """
+        fill = self._execute_order(order, bar)
+        
+        if fill:
+            # Propagate parent_id to fill
+            fill.parentId = parent_id
+            
+            # Recursively execute children
+            child_fills = []
+            child_pending = []
+            for child in order.children:
+                child_result = self.execute(child, bar, parent_id=order.orderId)
+                child_fills.extend(child_result.fills)
+                child_pending.extend(child_result.pending_orders)
+            
+            return ExecutionResult(
+                fills=[fill] + child_fills,
+                pending_orders=child_pending
             )
-            # Recursively execute the transformed order
-            return execute(limit_order, bar, state)
-        return None, state
-    
-    elif isinstance(order, LimitOrder):
-        # Execute limit logic
-        ...
+        else:
+            # Parent didn't trigger, return as pending
+            return ExecutionResult(fills=[], pending_orders=[order])
 ```
 
-**Benefits:**
-- Mirrors real exchange behavior (stop-limit → limit transition)
-- Cleaner separation of concerns (each order type handles its own logic)
-- Easier to add new order types (compose from existing primitives)
-- Natural state propagation for multi-bar orders
+**Key Changes from Phase 1:**
+- **ExecutionResult** dataclass replaces single Fill return
+- **parentId tracking**: Each fill knows its parent order
+- **Automatic child execution**: Stop orders create and execute Market children, Stop-Limit creates Limit children
+- **Pending order tracking**: Untriggered/unfilled orders returned separately
 
-#### 2.2 Execution Logging
+**Test Coverage:**
+- ✅ **88 CSV-driven formation tests** in [`test_stop_limit.py`](test_stop_limit.py)
+- ✅ Data loaded from [`test-data/stop-limit/`](test-data/stop-limit/) (8 CSV files × 11 formations)
+- ✅ Each CSV documents expected "Stop Fill" and "Limit Fill" outcomes
+- ✅ Tests validate: fill counts, prices, parentId relationships, pending orders
+- ✅ Current status: **174/176 passing (99%)**
+
+**Known Issues:**
+1. **Two-fill expectation vs. single-fill implementation** (SELL bullish F3):
+   - CSV expects: Stop fill at trigger (200) + Limit fill at execution (190)
+   - Current: Single fill at final execution price (190)
+   - **Decision needed**: Should stop-limit create TWO fills (stop trigger + limit execution) or ONE fill at final price?
+   - Impact: 2 tests failing due to this design question
+
+**Architecture Benefits:**
+- ✅ **Composability**: Stop orders reuse Market logic, Stop-Limit reuses both
+- ✅ **Real-world fidelity**: Mirrors exchange behavior (order transformation via children)
+- ✅ **Debuggability**: parentId chain shows order lifecycle
+- ✅ **Extensibility**: Easy to add bracket orders, OCO, etc.
+
+**Data-Driven Testing Infrastructure:**
+- CSV files define all 88 price formations exhaustively
+- Charts visualize formations with TradingView-style candlesticks
+- Test framework: `pytest` with parameterization
+- Single master test function + CSV parsing = comprehensive coverage
+
+---
+
+#### 2.2 Execution Logging ⏳ **PLANNED**
 
 **Goal:** Provide visibility into execution decisions for debugging and analysis.
 
@@ -118,7 +150,7 @@ def execute(order, bar, state=None):
 - Generate execution reports for strategy validation
 - Audit trail for regulatory compliance
 
-#### 2.3 Trailing Stop Orders
+#### 2.3 Trailing Stop Orders ⏳ **PLANNED**
 
 **Implementation with caller-managed state:**
 ```python

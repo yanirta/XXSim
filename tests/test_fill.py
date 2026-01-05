@@ -44,7 +44,8 @@ def test_create_commission_report():
 
 def test_create_fill():
     """Test creating a Fill (nested object)."""
-    order = LimitOrder('BUY', 100, Decimal("150.00"), orderId=1)
+    order = LimitOrder('BUY', 100, Decimal("150.00"))
+    order.orderId = 1
     
     execution = Execution(
         execId='00012345.001',
