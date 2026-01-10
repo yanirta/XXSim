@@ -1,38 +1,43 @@
 # XSim
-Stock Exchange Order Execution Simulator core.
+Stock Exchange Order Execution Simulator
 This project simulates order(s) execution based on provided market OHLCV data.
 
-# The challange
+## disclaimer
+**Own risk warning** - Execution prices are best estimations base on worst case scenarios and statistics, there will be price differences between simulations and real-world execution, using this package the user acknowledges his consent and takes full responsibility on the implications caused due to any error or misinterpetation of this package and it's results.
+
+Trailing commands warning - Trailing commands are currently roughly estimated and carry high deviation from the real world
+
+## The challange
 Core Problem: Reconstructing intra-bar price movement to determine order execution.
 
 The golden standard of market data comes in chunks of Candle-bars providing Open, High, Low, Close and Volume of predefined time range
 ie. 1-minute, 5-minutes, an hour, a day, a week, a month, etc...
 Within each such data-unit there is a gap of the inner price motions, unless you work with tick-by-tick data which is expensive, noisy and resource intense.
 
-# The solution
+## The solution
 Output: Realistic execution fills with statistical uncertainty.
 
 XSim relies on OHLC Data to simulate the inner motion of prices within single data-unit, and attempt to perform a set of decision to execute orders in the most authentic way.
 
-# Supported order types
+## Supported order types
 - MarketOrder
 - LimitOrder
 - StopOrder
 - StopLimitOrder
 
-# Not supported order types (at the moment)
+## Not supported order types (at the moment)
 - Trailing Stop Orders
 - Market-on-Close (MOC) / Limit-on-Close (LOC)
 - Bracket Orders (OCO - One-Cancels-Other)
 - Market-if-Touched (MIT)
 - Others...
 
-# Current Execution algorithm assumptions
+## Current Execution algorithm assumptions
 - No slippage
 - No partial fills
 - Aggressive approach - Order will be filled if there's a possible path between order's formation and the candlebar.
 
-# Use cases
+## Use cases
 1. Market order - Market order executes immidiently on submission time (close to open)
 1. Limit order - The algorithm will determine whether the price motion goes through the limit defined in the order, if so it will execute the order with some statistical error depends on the volatility of the candle-bar.
 1. Additional types of orders: Trailing stop, StopLimitOrder, StopOrder, 

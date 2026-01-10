@@ -90,14 +90,7 @@ class ExecutionEngine:
 - ✅ Data loaded from [`test-data/stop-limit/`](test-data/stop-limit/) (8 CSV files × 11 formations)
 - ✅ Each CSV documents expected "Stop Fill" and "Limit Fill" outcomes
 - ✅ Tests validate: fill counts, prices, parentId relationships, pending orders
-- ✅ Current status: **174/176 passing (99%)**
-
-**Known Issues:**
-1. **Two-fill expectation vs. single-fill implementation** (SELL bullish F3):
-   - CSV expects: Stop fill at trigger (200) + Limit fill at execution (190)
-   - Current: Single fill at final execution price (190)
-   - **Decision needed**: Should stop-limit create TWO fills (stop trigger + limit execution) or ONE fill at final price?
-   - Impact: 2 tests failing due to this design question
+- ✅ Current status: **148/148 passing (100%)**
 
 **Architecture Benefits:**
 - ✅ **Composability**: Stop orders reuse Market logic, Stop-Limit reuses both
@@ -113,7 +106,128 @@ class ExecutionEngine:
 
 ---
 
-#### 2.2 Execution Logging ⏳ **PLANNED**
+#### 2.2 Trailing Stop Orders ⏳ **PLANNED**
+
+**Design:** Stateless engine returns updated order state in `pending_orders` if not filled.
+
+**Order Types:**
+1. **TrailingStopMarket**: Trails market price, triggers Market order when stop hit
+2. **TrailingStopLimit**: Trails market price, triggers Limit order at offset when stop hit
+
+**Core Algorithm (Conservative Dual-Trigger Evaluation):**
+
+```python
+class TrailingStopMarket(Order):
+    orderType: str = "TRAIL"
+    trailAmount: Decimal  # Fixed dollar amount to trail
+    currentStopPrice: Decimal = UNSET_DECIMAL  # Mutable state
+    extremePrice: Decimal = UNSET_DECIMAL  # Tracks high (SELL) or low (BUY)
+
+def _execute_order(order: TrailingStopMarket, bar: BarData) -> Optional[Fill]:
+    # 1. Initialize on first bar
+    if order.currentStopPrice == UNSET_DECIMAL:
+        order.currentStopPrice = bar.open - order.trailAmount if order.action == "BUY" \
+                                  else bar.open + order.trailAmount
+        order.extremePrice = bar.open
+    
+    # Store old stop price before updating
+    old_stop = order.currentStopPrice
+    
+    # 2. Calculate new extreme price from this bar
+    new_extreme = bar.low if order.action == "BUY" else bar.high
+    
+    # 3. Update stop if extreme improved
+    if order.action == "BUY":
+        if new_extreme < order.extremePrice:  # Lower low = more favorable for BUY
+            order.extremePrice = new_extreme
+            new_stop = new_extreme - order.trailAmount
+        else:
+            new_stop = old_stop  # No change
+    else:  # SELL
+        if new_extreme > order.extremePrice:  # Higher high = more favorable for SELL
+            order.extremePrice = new_extreme
+            new_stop = new_extreme + order.trailAmount
+        else:
+            new_stop = old_stop  # No change
+    
+    # 4. Conservative trigger check: Did bar cross EITHER old_stop OR new_stop?
+    # This handles intra-bar scenarios where:
+    # - Price improves (new extreme) AND THEN reverses to hit new stop
+    # - Price hits old stop BEFORE improving
+    if order.action == "BUY":
+        # Trigger if bar went high enough to hit either stop
+        if bar.high >= old_stop or bar.high >= new_stop:
+            trigger_price = min(old_stop, new_stop)  # Most conservative
+            order.children = [MarketOrder(action=order.action, totalQuantity=order.totalQuantity)]
+            # Recursive execution fills the Market child
+            return _fill_at_price(order, bar, trigger_price)
+    else:  # SELL
+        # Trigger if bar went low enough to hit either stop
+        if bar.low <= old_stop or bar.low <= new_stop:
+            trigger_price = max(old_stop, new_stop)  # Most conservative
+            order.children = [MarketOrder(action=order.action, totalQuantity=order.totalQuantity)]
+            return _fill_at_price(order, bar, trigger_price)
+    
+    # 5. Not triggered - update state for next bar
+    order.currentStopPrice = new_stop
+    return None  # Returned in pending_orders by ExecutionResult
+
+# Caller usage
+trailing = TrailingStopMarket(action="SELL", totalQuantity=100, trailAmount=Decimal("5"))
+
+for bar in bars:
+    result = engine.execute(trailing, bar)
+    
+    if result.fills:
+        print(f"Triggered at {result.fills[0].execution.price}")
+        break
+    
+    # Order auto-updated, continue with same object
+    # (pending_orders[0] contains updated state)
+    trailing = result.pending_orders[0]
+```
+
+**TrailingStopLimit** (similar but creates Limit child):
+
+```python
+class TrailingStopLimit(Order):
+    orderType: str = "TRAIL LMT"
+    trailAmount: Decimal
+    limitOffset: Decimal  # Distance from trigger to limit price
+    currentStopPrice: Decimal = UNSET_DECIMAL
+    extremePrice: Decimal = UNSET_DECIMAL
+
+# When triggered, creates LimitOrder child:
+if triggered:
+    limit_price = trigger_price - order.limitOffset if order.action == "BUY" \
+                  else trigger_price + order.limitOffset
+    order.children = [LimitOrder(
+        action=order.action,
+        totalQuantity=order.totalQuantity,
+        price=limit_price
+    )]
+    return _fill_at_price(order, bar, trigger_price)
+```
+
+**Key Design Decisions:**
+
+1. **Stateless Engine**: Order carries mutable state (`currentStopPrice`, `extremePrice`), but engine remains pure function
+2. **Dual-Trigger Check**: Evaluates both old and new stop prices conservatively
+   - Handles edge case: extreme improves mid-bar, then reverses to hit new stop
+   - Conservative: triggers if EITHER stop was hit
+3. **Updated Orders in pending_orders**: Caller gets updated order back, continues loop
+4. **Recursive Child Execution**: Leverages Phase 2.1 architecture (children array)
+5. **Separate Order Types**: `TrailingStopMarket` vs `TrailingStopLimit` (not parent-child inheritance initially)
+
+**Test Strategy:**
+- Formation-based CSV tests (similar to stop-limit)
+- Scenarios: trailing up (SELL), trailing down (BUY), reversal cases
+- Dual-trigger validation: old_stop hit vs new_stop hit vs both
+- Gap scenarios: bar gaps past both stops
+
+---
+
+#### 2.3 Execution Logging ⏳ **PLANNED**
 
 **Goal:** Provide visibility into execution decisions for debugging and analysis.
 
@@ -149,55 +263,6 @@ def execute(order, bar, state=None):
 - Analyze execution quality across backtests
 - Generate execution reports for strategy validation
 - Audit trail for regulatory compliance
-
-#### 2.3 Trailing Stop Orders ⏳ **PLANNED**
-
-**Implementation with caller-managed state:**
-```python
-class TrailingStopState:
-    current_stop: Decimal
-    extreme_price: Decimal  # Highest for SELL, lowest for BUY
-
-def execute_trailing_stop(order, bar, prev_state=None):
-    # Initialize or update state
-    state = prev_state or initialize_state(order, bar)
-    
-    # Update trailing stop based on favorable price movement
-    if favorable_movement(bar, state):
-        state.current_stop = calculate_new_stop(bar, order.trailAmount)
-    
-    # Check if stop triggered
-    if stop_triggered(bar, state.current_stop):
-        # Transform to market order
-        market_order = MarketOrder(action=order.action, ...)
-        return execute(market_order, bar), None  # State=None (order complete)
-    
-    return None, state  # Continue to next bar
-
-# Caller manages lifecycle
-state = None
-for bar in bars:
-    fill, state = engine.execute(trailing_order, bar, state)
-    if fill:
-        break
-```
-
-**Features:**
-- **Fixed amount trailing**: `stop = market_price ± trailAmount`
-- **Percentage trailing**: `stop = market_price × (1 ± trailPercent/100)`
-- **Conservative updates**: Trail only on confirmed bar extremes (high/low), check trigger before updating
-- **Stateless engine**: Caller owns state, passes it each bar
-
-**Signature:**
-```python
-def execute(order, bar, prev_state=None) -> Tuple[Optional[Fill], Optional[OrderState]]:
-    """
-    Returns:
-        (fill, new_state) where:
-        - fill=None, state=X: Order still active, continue next bar
-        - fill=X, state=None: Order filled/cancelled, lifecycle complete
-    """
-```
 
 ---
 

@@ -5,6 +5,7 @@ from typing import Optional, Literal
 import random
 
 from models import Order, Fill, Execution, CommissionReport, BarData, ExecutionResult
+from models.order import TrailingStopMarket
 
 
 @dataclass
@@ -41,29 +42,27 @@ class ExecutionEngine:
             ExecutionResult with fills and pending orders
         """
         # 1. Try to fill immediate order
-        fill = self._try_fill_order(order, bar, parent_id)
+        execResult = self._try_fill_order(order, bar, parent_id)
         
-        result = ExecutionResult()
-        if fill:
-            result.fills.append(fill)
+        execResult = execResult if execResult is not None else ExecutionResult()
         
         # 2. If filled and has children, execute them with modified bar
-        if fill and order.children:
+        if len(execResult.fills) > 0 and order.children:
             # Create modified bar starting from fill price
-            modified_bar = self._create_modified_bar(bar, fill.execution.price)
+            modified_bar = self._create_modified_bar(bar, execResult.fills[0].execution.price)
             
             for child in order.children:
                 child_result = self.execute(child, modified_bar, parent_id=order.orderId)    
-                result.fills.extend(child_result.fills)
-                result.pending_orders.extend(child_result.pending_orders)
+                execResult.fills.extend(child_result.fills)
+                execResult.pending_orders.extend(child_result.pending_orders)
         
         # 3. If not filled, parent order becomes pending (children stay dormant)
-        elif not fill:
-            result.pending_orders.append(order)
+        elif len(execResult.fills) == 0:
+            execResult.pending_orders.append(order)
         
-        return result
+        return execResult
     
-    def _try_fill_order(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[Fill]:
+    def _try_fill_order(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[ExecutionResult]:
         """Fill single order based on type.
         
         Args:
@@ -81,6 +80,11 @@ class ExecutionEngine:
         elif order.orderType.startswith('STP'):
             # Handles both 'STP' and 'STP LMT'
             return self._fill_stop(order, bar, parent_id)
+        elif order.orderType == 'TRAIL':
+            return self._fill_trail(order, bar, parent_id)
+        elif order.orderType == 'TRAIL LMT':
+            # Not implemented
+            raise NotImplementedError("Trailing Stop Limit execution not implemented")
         return None
     
     def _create_modified_bar(self, original: BarData, new_open: Decimal) -> BarData:
@@ -98,13 +102,13 @@ class ExecutionEngine:
         return BarData(
             date=original.date,
             open=new_open,
-            high=original.high,
-            low=original.low,
+            high=max(new_open, original.high),
+            low=min(new_open, original.low),
             close=original.close,
             volume=original.volume
         )
     
-    def _fill_market(self, order: Order, bar: BarData, parent_id: int = 0) -> Fill:
+    def _fill_market(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[ExecutionResult]:
         """Fill market order at open price."""
         fill_price = bar.open
         
@@ -121,15 +125,16 @@ class ExecutionEngine:
             currency="USD",
         )
         
-        return Fill(
-            order=order,
-            execution=execution,
-            commissionReport=commission,
-            time=bar.date,
-            parentId=parent_id,
-        )
+        fill = Fill(
+                order=order,
+                execution=execution,
+                commissionReport=commission,
+                time=bar.date,
+                parentId=parent_id)
+            
+        return ExecutionResult(fills=[fill])
     
-    def _fill_limit(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[Fill]:
+    def _fill_limit(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[ExecutionResult]:
         """Fill limit order if price is reached."""
         limit_price = order.price
         
@@ -161,15 +166,17 @@ class ExecutionEngine:
             currency="USD",
         )
         
-        return Fill(
+        fill = Fill(
             order=order,
             execution=execution,
             commissionReport=commission,
             time=bar.date,
             parentId=parent_id,
         )
+
+        return ExecutionResult(fills=[fill])
     
-    def _fill_stop(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[Fill]:
+    def _fill_stop(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[ExecutionResult]:
         """Fill stop order if triggered - converts to market at trigger point."""
         stop_price = order.price
         
@@ -201,12 +208,100 @@ class ExecutionEngine:
             currency="USD",
         )
         
-        return Fill(
+        fill = Fill(
             order=order,
             execution=execution,
             commissionReport=commission,
             time=bar.date,
             parentId=parent_id,
         )
+
+        return ExecutionResult(fills=[fill])
+    
+    def _fill_trail(self, order: TrailingStopMarket, bar: BarData, parent_id: int = 0) -> Optional[ExecutionResult]:
+        """
+        Stateless execution for TrailingStopMarket (BUY only).
+        - Updates order.extremePrice and order.currentStopPrice in-place.
+        - Returns (fills, pending_orders, updated_order)
+        """
+        # Note: Bullish bar flow assumption: prev_extremePrice [optional] -> open -> low -> high -> close
+        #       Bearish bar flow assumption: prev_extremePrice [optional] -> open -> high -> low -> close
+
+        fragments = []
+        if bar.close > bar.open:
+            fragments = [bar.open, bar.low, bar.high, bar.close]
+        else:
+            fragments = [bar.open, bar.high, bar.low, bar.close]
+        
+        fill_price = None
+        prev_price = None
+        # Evaluate each fragment in order for trigger
+        for price in fragments:
+            if order.action == 'BUY':
+                # Initialize on first fragment
+                if order.stopPrice is None:
+                    order.extremePrice = price
+                    order.stopPrice = order.extremePrice + order.trailingDistance if order.trailingDistance is not None else \
+                        order.extremePrice * (1 + order.trailingPercent / 100)  # type: ignore
+                
+                # Update extreme and stop prices on motion down
+                if price <= order.extremePrice:  # type: ignore
+                    order.extremePrice = price
+                    order.stopPrice = order.extremePrice + order.trailingDistance if order.trailingDistance is not None else \
+                        order.extremePrice * (1 + order.trailingPercent / 100)  # type: ignore
+                # Check for trigger on motion up
+                elif price >= order.stopPrice:
+                    # Triggered
+                    fill_price = order.stopPrice if prev_price is not None and prev_price < order.stopPrice else price
+                    break
+
+            elif order.action == 'SELL':
+                # Initialize on first fragment
+                if order.stopPrice is None:
+                    order.extremePrice = price
+                    order.stopPrice = order.extremePrice - order.trailingDistance if order.trailingDistance is not None else \
+                        order.extremePrice * (1 - order.trailingPercent / 100)  # type: ignore
+                # Update extreme and stop prices on motion up
+                if price >= order.extremePrice:  # type: ignore
+                    order.extremePrice = price
+                    order.stopPrice = order.extremePrice - order.trailingDistance if order.trailingDistance is not None else \
+                        order.extremePrice * (1 - order.trailingPercent / 100)  # type: ignore
+                # Check for trigger on motion down
+                elif price <= order.stopPrice:
+                    # Triggered
+                    fill_price = order.stopPrice if prev_price is not None and prev_price > order.stopPrice else price
+                    break
+
+            else:
+                raise ValueError(f"Unsupported action for TrailingStopMarket: {order.action}")
+            
+            prev_price = price
+
+        if fill_price is not None:
+            execution = Execution(
+                orderId=order.orderId,
+                time=bar.date,
+                shares=order.totalQuantity,
+                price=fill_price,
+                side=order.action,
+            )
+            
+            commission = CommissionReport(
+                commission=Decimal("0.00"),
+                currency="USD",
+            )
+            
+            fill = Fill(
+                order=order,
+                execution=execution,
+                commissionReport=commission,
+                time=bar.date,
+                parentId=parent_id,
+            )
+                
+            return ExecutionResult(fills=[fill])  # No pending, no updated order
+       
+        # ---  Not triggered empty result, original order will be attached as pending in the caller ---
+        return ExecutionResult()
 
 # endregion
