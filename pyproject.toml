@@ -1,7 +1,17 @@
 [project]
-name = "xsim"
-version = "0.1.0"
-description = "Stock exchange execution simulator core"
+name = "XSim"
+version = "0.5.0"
+description = "Exchange simulator - stock exchange single bar execution simulator"
+authors = [{name = "Yanir Taflev", email = "yanirta+xsim@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+keywords = ["trade", "Algotrading", "simulation", "trading", "exchange", "stocks", "backtesting", "stock market", "execution simulator", "OHLCV", "order simulation", "finance", "trading bot", "quantitative", "algorithmic trading", "market data"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
