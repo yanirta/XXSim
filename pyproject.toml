@@ -1,7 +1,7 @@
 [project]
-name = "XSim"
+name = "XXSim"
 version = "0.5.0"
-description = "Exchange simulator - stock exchange single bar execution simulator"
+description = "Exchange Execution Simulator - stock exchange single bar execution simulator"
 authors = [{name = "Yanir Taflev", email = "yanirta+xsim@gmail.com"}]
 license = {text = "MIT"}
 readme = "README.md"

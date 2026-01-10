@@ -1,5 +1,5 @@
-# XSim
-Stock Exchange Order Execution Simulator for developers
+# XXSim
+Exchange Execution Simulator, development package.
 This package simulates order(s) execution based on provided market OHLCV data.
 This is not an independent package, but its the core logic required to implement backtesting when it comes on running on candlebar data.
 
@@ -16,10 +16,10 @@ Core Problem: Reconstructing intra-bar price movement to determine order executi
 The golden standard of market data comes in chunks of Candle-bars providing Open, High, Low, Close and Volume of predefined time range
 ie. 1-minute, 5-minutes, an hour, a day, a week, a month, etc...
 Within each such data-unit there is a gap of the inner price motions, unless you work with tick-by-tick data which is expensive, noisy and resource intense.
-On top of that, prices are results of a consiquent rules and formations that are hard to simulate.
+On top of that, fill prices are results of a consiquent rules and formations that are hard to simulate.
 
 ## The solution
-Output: Realistic execution fills with statistical uncertainty.
+Output: Realistic execution fills within statistical uncertainty. or consiquent order either original or modified.
 
 XSim relies on OHLC Data to simulate the inner motion of prices within single data-unit, and attempt to perform a set of decision to execute orders in the most authentic way.
 
