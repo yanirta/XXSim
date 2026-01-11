@@ -60,13 +60,7 @@ On Bearish bar: prev_extremePrice [optional] -> open -> high -> low -> close
 ## Installation
 
 ```bash
-pip install -e .
-```
-
-## Running Tests
-
-```bash
-pytest tests/ -v
+pip install XXSim
 ```
 
 ## Usage
@@ -89,6 +83,14 @@ bar = BarData(
 order = MarketOrder(action='BUY', totalQuantity=100)
 result = engine.execute(order, bar)
 print(result.fills)
+```
+
+## Development
+
+## Running Tests
+
+```bash
+pytest tests/ -v
 ```
 
 ## Visualizations
