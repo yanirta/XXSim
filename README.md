@@ -45,18 +45,6 @@ XSim relies on OHLC Data to simulate the inner motion of prices within single da
 On Bullish bar: prev_extremePrice [optional] -> open -> low -> high -> close
 On Bearish bar: prev_extremePrice [optional] -> open -> high -> low -> close
 
-## Use cases
-1. Market order - Market order executes immediately on submission time (close to open)
-1. Limit order - The algorithm will determine whether the price motion goes through the limit defined in the order, if so it will execute the order with some statistical error depends on the volatility of the candle-bar.
-1. Additional types of orders: Trailing stop, StopLimitOrder, StopOrder, 
-1. Supporting buy/sell(long/short) directions
-1. Supporting Time In Force (Tif), goodAfterTime, goodTillDate
-1. Supporting ocaGroup
-1. Supporting parent/child relationships
-1. Multiple orders
-
-* Working with fractional time of submission is Unsupported yet
-
 ## Installation
 
 ```bash
