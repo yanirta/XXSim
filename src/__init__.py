@@ -1,5 +1,5 @@
 """XSim - Stock Exchange Execution Simulator."""
-from .models import (
+from xtrading_models import (
     Order,
     LimitOrder,
     MarketOrder,

@@ -5,7 +5,7 @@ from pathlib import Path
 import csv
 import pytest
 
-from models import StopLimitOrder, BarData
+from xtrading_models import StopLimitOrder, BarData
 from execution import ExecutionEngine
 
 

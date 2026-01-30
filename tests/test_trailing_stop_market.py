@@ -13,7 +13,7 @@ import pytest
 import csv
 from pathlib import Path
 
-from models import TrailingStopMarket, BarData
+from xtrading_models import TrailingStopMarket, BarData
 from execution import ExecutionEngine
 
 

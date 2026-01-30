@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime
 import pytest
 
-from models import BarData, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, ExecutionResult
+from xtrading_models import BarData, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, ExecutionResult
 from execution import ExecutionEngine
 
 

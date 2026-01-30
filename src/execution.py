@@ -4,8 +4,8 @@ from decimal import Decimal
 from typing import Optional, Literal
 import random
 
-from models import Order, Fill, Execution, CommissionReport, BarData, ExecutionResult
-from models.order import TrailingStopMarket
+from xtrading_models import Order, Fill, Execution, CommissionReport, BarData, ExecutionResult
+from xtrading_models.order import TrailingStopMarket
 
 
 @dataclass
