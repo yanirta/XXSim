@@ -2,7 +2,7 @@
 name = "XXSim"
 version = "0.5.1"
 description = "Exchange Execution Simulator - stock exchange single bar execution simulator"
-authors = [{name = "Yanir Taflev", email = "yanirta+xsim@gmail.com"}]
+authors = [{name = "Yanir Taflev", email = "yanirta+xxsim@gmail.com"}]
 license = {text = "MIT"}
 readme = "README.md"
 classifiers = [

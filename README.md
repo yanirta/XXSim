@@ -86,13 +86,13 @@ Stop-limit and Trailing test cases can be visualized
 For stop-limit visualization run:
 
 ```bash
-docs/stop-limit-chart-generator.py test-data/stop-limit/<filename.csv>
+python docs/stop-limit-chart-generator.py test-data/stop-limit/<filename.csv>
 ```
 
 For trailing visualization run:
 
 ```bash
-docs/trailing-stop-chart-generator.py test-data/trailing-stop/<filename.csv>
+python docs/trailing-stop-chart-generator.py test-data/trailing-stop/<filename.csv>
 ```
 
 TODO: Trailing cases are not organized systemactically enough
