@@ -52,10 +52,11 @@ pip install XXSim
 ```
 
 ## Usage
-Here is a minimal example of simulating a market order execution:
+
+### Single-Bar Execution
+For direct single-bar execution using the low-level engine:
 ```python
-from models import MarketOrder, BarData
-from execution import ExecutionEngine
+from XXSim import ExecutionEngine, MarketOrder, BarData
 from decimal import Decimal
 from datetime import datetime
 
@@ -72,6 +73,40 @@ order = MarketOrder(action='BUY', totalQuantity=100)
 result = engine.execute(order, bar)
 print(result.fills)
 ```
+
+### Multi-Bar Simulation
+For backtesting across multiple bars with order lifecycle management:
+```python
+from XXSim import Simulator, MarketOrder, LimitOrder, BarData
+from decimal import Decimal
+
+sim = Simulator()
+
+# Register callbacks
+sim.on_fill(lambda fill: print(f"Filled: {fill.execution.price}"))
+sim.on_cancel(lambda order, reason: print(f"Cancelled: {reason}"))
+
+# Submit orders
+sim.submit_order(MarketOrder(action='BUY', totalQuantity=100))
+sim.submit_order(LimitOrder(action='SELL', totalQuantity=100, price=Decimal('110')))
+
+# Process bars
+for bar in historical_bars:
+    fills = sim.process_bar(bar)
+
+# Or use ib_insync-style event loop
+def strategy(bar, fills):
+    if should_buy(bar):
+        sim.submit_order(MarketOrder(action='BUY', totalQuantity=100))
+
+sim.on_bar(strategy)
+sim.run(historical_bars)
+```
+
+The Simulator supports:
+- **Order management**: submit, cancel, update, query orders
+- **TIF (Time-In-Force)**: GTC, DAY (expires on date change), GTD (expires after date)
+- **Callbacks**: on_fill, on_cancel, on_update, on_bar
 
 ## Development
 

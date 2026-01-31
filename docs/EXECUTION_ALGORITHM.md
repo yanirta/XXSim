@@ -37,7 +37,7 @@ XSim simulates order execution using OHLCV bar data. The core challenge: **recon
 
 ---
 
-### Phase 2: Recursive Order Transformation 🔄 **IN PROGRESS**
+### Phase 2: Recursive Order Transformation ✅ **COMPLETE**
 
 **Goal:** Model order lifecycle transformations that mirror real-world exchange behavior.
 
@@ -106,7 +106,7 @@ class ExecutionEngine:
 
 ---
 
-#### 2.2 Trailing Stop Orders ⏳ **PLANNED**
+#### 2.2 Trailing Stop Orders ✅ **COMPLETE**
 
 **Design:** Stateless engine returns updated order state in `pending_orders` if not filled.
 
@@ -266,11 +266,25 @@ def execute(order, bar, state=None):
 
 ---
 
+### Phase 2.5: Multi-Bar Simulation ✅ **COMPLETE**
+
+**Goal:** Manage order lifecycle across multiple bars with TIF support.
+
+**Implementation:** `Simulator` class wrapping `ExecutionEngine`:
+- **Order book management**: submit, cancel, update, query orders
+- **TIF support**: GTC (never expires), DAY (expires on date change), GTD (expires after goodTillDate)
+- **Event callbacks**: on_fill, on_cancel, on_update, on_bar
+- **Bar processing**: Automatic order carry-forward, child order promotion on partial fills
+
+See CLAUDE.md for API documentation.
+
+---
+
 ### Phase 3: Advanced Execution Features 📋 **FUTURE**
 
 #### Planning Items
 - **Order orchestration**: Bracket orders (OCO), parent-child relationships
-- **Time-in-force**: GTC (Good-Till-Cancelled), FOK (Fill-or-Kill), IOC (Immediate-or-Cancel)
+- **TIF extensions**: FOK (Fill-or-Kill), IOC (Immediate-or-Cancel)
 - **Special execution**: Market-on-Close (MOC), Limit-on-Close (LOC)
 - **Volume constraints**: Partial fills based on bar.volume
 - **Multi-leg strategies**: Spread orders, ratio orders
