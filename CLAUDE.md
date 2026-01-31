@@ -47,6 +47,47 @@ Orders follow a recursive parent-child pattern:
 
 The engine is stateless per-bar; order state (e.g., trailing extreme prices) is mutated on the order object itself.
 
+### Simulator (Multi-Bar)
+
+- **`src/simulator.py`**: `Simulator` - wraps `ExecutionEngine` to manage order lifecycle across multiple bars.
+
+Key features:
+- **Order Book**: Simple dict `{orderId: Order}` tracking active orders
+- **TIF Support**: GTC (never expires), DAY (expires on date change), GTD (expires after goodTillDate)
+- **Callbacks**: `on_fill`, `on_cancel`, `on_update`, `on_bar` for event notifications
+
+API:
+```python
+sim = Simulator()
+sim.on_fill(lambda fill: print(f"Filled: {fill.execution.price}"))
+sim.on_cancel(lambda order, reason: print(f"Cancelled: {reason}"))
+
+sim.submit_order(order)      # Returns order ID
+sim.cancel_order(order_id)   # Returns True if found
+sim.update_order(order_id, price=new_price)  # Modify active order
+sim.get_order(order_id)      # Query single order
+sim.get_active_orders()      # Query all active orders
+
+fills = sim.process_bar(bar)  # Process bar, returns fills
+```
+
+Bar processing algorithm:
+1. Expire DAY orders if date changed
+2. Expire GTD orders past goodTillDate
+3. Execute each active order via ExecutionEngine
+4. Handle FILLED (remove), PARTIAL (promote children), PENDING (keep)
+
+ib_insync-style usage with `on_bar` and `run()`:
+```python
+def strategy(bar, fills):
+    # React to bar, submit orders for next bar
+    if should_buy(bar):
+        sim.submit_order(MarketOrder(action='BUY', totalQuantity=100))
+
+sim.on_bar(strategy)
+sim.run(historical_bars)
+```
+
 ### Test Data Structure
 
 CSV-driven formation tests in `test-data/`:

@@ -11,6 +11,7 @@ from xtrading_models import (
     Fill,
 )
 from .execution import ExecutionEngine, ExecutionConfig
+from .simulator import Simulator, SimulatorConfig
 
 __version__ = "0.1.0"
 
@@ -26,4 +27,6 @@ __all__ = [
     "Fill",
     "ExecutionEngine",
     "ExecutionConfig",
+    "Simulator",
+    "SimulatorConfig",
 ]
