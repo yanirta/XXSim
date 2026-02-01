@@ -105,6 +105,7 @@ sim.run(historical_bars)
 The Simulator supports:
 - **Order management**: submit, cancel, update, query orders
 - **TIF (Time-In-Force)**: GTC, DAY (expires on date change), GTD (expires after date)
+- **GAT (Good After Time)**: Orders with `goodAfterTime` are not active until that time
 - **OCO (One-Cancels-Other)**: Link orders via `ocaGroup` - when one fills, siblings are cancelled
 - **Callbacks**: on_fill, on_cancel, on_update, on_bar
 

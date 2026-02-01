@@ -53,7 +53,7 @@ The engine is stateless per-bar; order state (e.g., trailing extreme prices) is 
 
 Key features:
 - **Order Book**: Simple dict `{orderId: Order}` tracking active orders
-- **TIF Support**: GTC (never expires), DAY (expires on date change), GTD (expires after goodTillDate)
+- **TIF Support**: GTC (never expires), DAY (expires on date change), GTD (expires after goodTillDate), GAT (goodAfterTime - order not active until specified time)
 - **Callbacks**: `on_fill`, `on_cancel`, `on_update`, `on_bar` for event notifications
 
 API:
@@ -84,11 +84,27 @@ sim.submit_order(stop_loss)
 # Order closest to bar.open fills first when multiple could fill
 ```
 
+**GAT (Good After Time) Orders:**
+```python
+# Order becomes active at 10:00 AM on Jan 15, 2024
+order = LimitOrder(
+    action='BUY',
+    totalQuantity=100,
+    price=Decimal('95'),
+    goodAfterTime='20240115 10:00:00'  # Format: YYYYMMDD HH:MM:SS
+)
+sim.submit_order(order)
+
+# Order won't execute until bar.date >= goodAfterTime
+# Can also use date-only format: '20240115'
+```
+
 Bar processing algorithm:
 1. Expire DAY orders if date changed
 2. Expire GTD orders past goodTillDate
-3. Execute each active order via ExecutionEngine
-4. Handle FILLED (remove), PARTIAL (promote children), PENDING (keep)
+3. Skip orders where goodAfterTime hasn't been reached
+4. Execute each active order via ExecutionEngine
+5. Handle FILLED (remove), PARTIAL (promote children), PENDING (keep)
 
 ib_insync-style usage with `on_bar` and `run()`:
 ```python

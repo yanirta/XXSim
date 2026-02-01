@@ -520,6 +520,223 @@ class TestTIFExpiration:
         # Order still active
         assert simulator.get_order(order.orderId) is order
 
+    # GAT (Good After Time) Tests
+
+    def test_gat_order_not_active_before_time(self, simulator):
+        """Order with goodAfterTime is not executed before that time."""
+        # Bar at 9:30, order active after 10:00
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240115 10:00:00'
+        )
+        simulator.submit_order(order)
+
+        fills = simulator.process_bar(bar)
+
+        assert len(fills) == 0
+        assert simulator.get_order(order.orderId) is order  # Still active, just not executed
+
+    def test_gat_order_active_after_time(self, simulator):
+        """Order with goodAfterTime is executed after that time."""
+        # Bar at 10:30, order active after 10:00
+        bar = BarData(
+            date=datetime(2024, 1, 15, 10, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240115 10:00:00'
+        )
+        simulator.submit_order(order)
+
+        fills = simulator.process_bar(bar)
+
+        assert len(fills) == 1
+        assert simulator.get_order(order.orderId) is None
+
+    def test_gat_order_active_at_exact_time(self, simulator):
+        """Order with goodAfterTime is executed at exact time."""
+        # Bar at exactly 10:00, order active after 10:00
+        bar = BarData(
+            date=datetime(2024, 1, 15, 10, 0),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240115 10:00:00'
+        )
+        simulator.submit_order(order)
+
+        fills = simulator.process_bar(bar)
+
+        assert len(fills) == 1
+
+    def test_gat_order_becomes_active_on_later_bar(self, simulator):
+        """Order pending on bar1, becomes active and fills on bar2."""
+        bar1 = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+        bar2 = BarData(
+            date=datetime(2024, 1, 15, 10, 30),
+            open=Decimal('102'),
+            high=Decimal('108'),
+            low=Decimal('100'),
+            close=Decimal('106'),
+            volume=1200
+        )
+
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240115 10:00:00'
+        )
+        simulator.submit_order(order)
+
+        # Bar 1: Not yet active
+        fills1 = simulator.process_bar(bar1)
+        assert len(fills1) == 0
+        assert simulator.get_order(order.orderId) is order
+
+        # Bar 2: Now active and fills
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 1
+        assert simulator.get_order(order.orderId) is None
+
+    def test_gat_with_date_only_format(self, simulator, bar_day1, bar_day2):
+        """Order with date-only goodAfterTime format (YYYYMMDD)."""
+        # bar_day1 is Jan 15, bar_day2 is Jan 16
+        # Order active after Jan 16
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240116'
+        )
+        simulator.submit_order(order)
+
+        # Day 1: Not yet active
+        fills1 = simulator.process_bar(bar_day1)
+        assert len(fills1) == 0
+        assert simulator.get_order(order.orderId) is order
+
+        # Day 2: Now active
+        fills2 = simulator.process_bar(bar_day2)
+        assert len(fills2) == 1
+
+    def test_gat_limit_order_not_active_doesnt_fill(self, simulator):
+        """Limit order with GAT not reached stays pending."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+
+        # Limit at 96 would fill (low=95) but GAT not reached
+        order = LimitOrder(
+            action='BUY',
+            totalQuantity=100,
+            price=Decimal('96'),
+            goodAfterTime='20240115 10:00:00'
+        )
+        simulator.submit_order(order)
+
+        fills = simulator.process_bar(bar)
+
+        assert len(fills) == 0
+        assert simulator.get_order(order.orderId) is order
+
+    def test_gat_combined_with_gtd(self, simulator):
+        """Order with both goodAfterTime and goodTillDate."""
+        bar1 = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+        bar2 = BarData(
+            date=datetime(2024, 1, 15, 10, 30),
+            open=Decimal('102'),
+            high=Decimal('108'),
+            low=Decimal('100'),
+            close=Decimal('106'),
+            volume=1200
+        )
+        bar3 = BarData(
+            date=datetime(2024, 1, 17, 9, 30),
+            open=Decimal('106'),
+            high=Decimal('110'),
+            low=Decimal('90'),  # Would hit limit
+            close=Decimal('108'),
+            volume=1500
+        )
+
+        # Active after 10:00 on Jan 15, expires after Jan 16
+        order = LimitOrder(
+            action='BUY',
+            totalQuantity=100,
+            price=Decimal('92'),  # Won't fill on bar1/bar2
+            tif='GTD',
+            goodTillDate='20240116',
+            goodAfterTime='20240115 10:00:00'
+        )
+        simulator.submit_order(order)
+
+        # Bar 1 (9:30): Not active yet (GAT)
+        fills1 = simulator.process_bar(bar1)
+        assert len(fills1) == 0
+        assert simulator.get_order(order.orderId) is order
+
+        # Bar 2 (10:30): Active but limit not reached
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 0
+        assert simulator.get_order(order.orderId) is order
+
+        # Bar 3 (Jan 17): Expired (GTD)
+        fills3 = simulator.process_bar(bar3)
+        assert len(fills3) == 0
+        assert simulator.get_order(order.orderId) is None  # Expired
+
+    def test_gat_no_effect_when_empty(self, simulator, bar_day1):
+        """Order without goodAfterTime is immediately active."""
+        order = MarketOrder(action='BUY', totalQuantity=100)
+        assert order.goodAfterTime == ''
+
+        simulator.submit_order(order)
+        fills = simulator.process_bar(bar_day1)
+
+        assert len(fills) == 1
+
 
 # endregion
 

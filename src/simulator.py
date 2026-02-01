@@ -144,7 +144,7 @@ class Simulator:
         1. Expire DAY orders if date changed
         2. Expire GTD orders past goodTillDate
         3. Sort orders by distance to bar.open (for OCO priority)
-        4. For each active order (skipping OCO-cancelled):
+        4. For each active order (skipping OCO-cancelled, skipping GAT not yet active):
            a. Execute via ExecutionEngine
            b. If FILLED: remove order, cancel OCO siblings, invoke on_fill
            c. If PARTIAL: remove parent, add child(ren) as active
@@ -182,6 +182,10 @@ class Simulator:
         for order_id, order in orders_to_process:
             # Skip if already cancelled by OCO sibling
             if order_id not in self._active_orders:
+                continue
+
+            # Skip if goodAfterTime not yet reached
+            if not self._is_order_active(order, bar.date):
                 continue
 
             result = self._engine.execute(order, bar)
@@ -234,6 +238,32 @@ class Simulator:
             return Decimal('0')
         price = order.price or bar.open
         return abs(price - bar.open)
+
+    def _is_order_active(self, order: Order, bar_time: datetime) -> bool:
+        """Check if order is active based on goodAfterTime.
+
+        Args:
+            order: Order to check
+            bar_time: Current bar datetime
+
+        Returns:
+            True if order is active (no GAT or GAT has passed), False otherwise
+        """
+        if not order.goodAfterTime:
+            return True
+        try:
+            # Parse goodAfterTime string (format: YYYYMMDD HH:MM:SS)
+            gat = datetime.strptime(order.goodAfterTime, '%Y%m%d %H:%M:%S')
+            return bar_time >= gat
+        except ValueError:
+            # Try date-only format (YYYYMMDD)
+            try:
+                gat = datetime.strptime(order.goodAfterTime, '%Y%m%d')
+                bar_date = bar_time.date() if isinstance(bar_time, datetime) else bar_time
+                return bar_date >= gat.date()
+            except ValueError:
+                # Invalid format - treat as active
+                return True
 
     def _cancel_oca_siblings(self, filled_order: Order) -> None:
         """Cancel all other orders in the same OCA group.
