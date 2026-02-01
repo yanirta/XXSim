@@ -7,7 +7,8 @@ from xtrading_models import (
     BarData,
     MarketOrder,
     LimitOrder,
-    StopOrder
+    StopOrder,
+    Order
 )
 from xtrading_models.order import StopLimitOrder, TrailingStopMarket
 
@@ -276,6 +277,89 @@ class TestBarProcessing:
         fills3 = simulator.process_bar(bar3)
         assert len(fills3) == 2  # Stop trigger + market child fill
         assert fills3[-1].execution.price == Decimal('105')  # Fills at stop price
+        assert len(simulator.get_active_orders()) == 0
+
+    def test_stop_order_triggers_on_second_bar(self, simulator):
+        """Stop order pending on bar1, triggers on bar2."""
+        # Bar1: low=98 doesn't reach stop=97
+        # Bar2: low=95 triggers stop=97, market child fills
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('102'), low=Decimal('98'), close=Decimal('101'), volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('99'), high=Decimal('100'), low=Decimal('95'), close=Decimal('96'), volume=1000)
+
+        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('97'))
+        simulator.submit_order(order)
+
+        # Bar 1: Stop not triggered
+        fills1 = simulator.process_bar(bar1)
+        assert len(fills1) == 0
+        assert simulator.get_order(order.orderId) is order
+
+        # Bar 2: Stop triggers and market child fills
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 2  # Stop trigger + market child
+        assert fills2[-1].execution.price == Decimal('97')  # Fills at stop price
+        assert len(simulator.get_active_orders()) == 0
+
+    def test_stop_limit_child_pending_across_multiple_bars(self, simulator):
+        """StopLimit: stop triggers bar1, limit child stays pending bars 2-3, fills bar4."""
+        # Bar1: stop triggers but limit not reached
+        # Bar2-3: limit still not reached
+        # Bar4: limit finally fills
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('103'), high=Decimal('105'), low=Decimal('102'), close=Decimal('104'), volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('104'), high=Decimal('106'), low=Decimal('103'), close=Decimal('105'), volume=1000)
+        bar3 = BarData(date=datetime(2025, 1, 1, 9, 32), open=Decimal('105'), high=Decimal('107'), low=Decimal('104'), close=Decimal('106'), volume=1000)
+        bar4 = BarData(date=datetime(2025, 1, 1, 9, 33), open=Decimal('102'), high=Decimal('103'), low=Decimal('99'), close=Decimal('100'), volume=1000)
+
+        order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=Decimal('102'), limitPrice=Decimal('100'))
+        simulator.submit_order(order)
+
+        # Bar 1: Stop triggers, limit child becomes pending
+        fills1 = simulator.process_bar(bar1)
+        assert len(fills1) == 1  # Stop trigger only
+        active = simulator.get_active_orders()
+        assert len(active) == 1
+        limit_child = active[0]
+        assert limit_child.orderType == 'LMT'
+        assert limit_child.price == Decimal('100')
+
+        # Bar 2: Limit still not reached (low=103 > 100)
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 0
+        assert simulator.get_order(limit_child.orderId) is limit_child
+
+        # Bar 3: Limit still not reached (low=104 > 100)
+        fills3 = simulator.process_bar(bar3)
+        assert len(fills3) == 0
+        assert simulator.get_order(limit_child.orderId) is limit_child
+
+        # Bar 4: Limit fills (low=99 < 100)
+        fills4 = simulator.process_bar(bar4)
+        assert len(fills4) == 1
+        assert fills4[0].execution.price == Decimal('100')
+        assert len(simulator.get_active_orders()) == 0
+
+    def test_multiple_parent_orders_trigger_on_different_bars(self, simulator):
+        """Two stop orders submitted together, triggering on different bars."""
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('102'), low=Decimal('98'), close=Decimal('101'), volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('99'), high=Decimal('100'), low=Decimal('94'), close=Decimal('95'), volume=1000)
+
+        # Stop1 at 99 triggers on bar1 (low=98)
+        # Stop2 at 95 triggers on bar2 (low=94)
+        stop1 = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('99'))
+        stop2 = StopOrder(action='SELL', totalQuantity=50, stopPrice=Decimal('95'))
+
+        simulator.submit_order(stop1)
+        simulator.submit_order(stop2)
+
+        # Bar 1: Only stop1 triggers
+        fills1 = simulator.process_bar(bar1)
+        assert len(fills1) == 2  # Stop1 trigger + market child
+        assert simulator.get_order(stop1.orderId) is None
+        assert simulator.get_order(stop2.orderId) is stop2  # Still pending
+
+        # Bar 2: stop2 triggers
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 2  # Stop2 trigger + market child
         assert len(simulator.get_active_orders()) == 0
 
     def test_stop_order_triggers_and_fills(self, simulator, bar_day1):
@@ -767,6 +851,219 @@ class TestIntegration:
         assert len(fills) == 1
         assert simulator.get_order(order1.orderId) is None
         assert simulator.get_order(order2.orderId) is None  # Filled and removed
+
+
+# endregion
+
+# region OCO Tests
+
+class TestOCOOrders:
+    """Tests for OCA (One-Cancels-All) order groups."""
+
+    def test_oco_one_fills_cancels_other(self, simulator, bar_day1):
+        """When one OCO order fills, sibling is cancelled."""
+        # Bar: open=100, high=105, low=95
+        # Buy limit at 96 will fill (low=95 < 96)
+        # Buy limit at 90 will not be reached but should be cancelled
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        fills = simulator.process_bar(bar_day1)
+
+        assert len(fills) == 1
+        assert fills[0].order.orderId == order1.orderId
+        assert simulator.get_order(order1.orderId) is None
+        assert simulator.get_order(order2.orderId) is None  # Cancelled by OCO
+        assert order1.status == 'FILLED'
+        assert order2.status == 'CANCELLED'
+
+    def test_oco_closest_to_open_fills_first(self, simulator):
+        """When multiple OCO orders could fill, closest to open wins."""
+        # Bar: open=100, high=105, low=95
+        # Both limits at 96 and 98 would fill (low=95 < both)
+        # Order at 98 is closer to open=100, should fill first
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('98'), ocaGroup='bracket_1')
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        fills = simulator.process_bar(bar)
+
+        assert len(fills) == 1
+        # Order2 (price=98) is closer to open=100, should fill
+        assert fills[0].order.orderId == order2.orderId
+        assert order2.status == 'FILLED'
+        assert order1.status == 'CANCELLED'
+
+    def test_oco_no_fill_both_remain(self, simulator, bar_day1):
+        """When neither OCO order fills, both remain active."""
+        # Bar: open=100, high=105, low=95
+        # Both limits at 90 and 85 won't fill (low=95 > both)
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        fills = simulator.process_bar(bar_day1)
+
+        assert len(fills) == 0
+        assert simulator.get_order(order1.orderId) is order1
+        assert simulator.get_order(order2.orderId) is order2
+        assert order1.status == 'PENDING'
+        assert order2.status == 'PENDING'
+
+    def test_oco_cancel_invokes_callback(self, simulator, bar_day1):
+        """Cancelled OCO sibling triggers on_cancel with reason."""
+        cancelled = []
+
+        def on_cancel(order, reason):
+            cancelled.append((order, reason))
+
+        simulator.on_cancel(on_cancel)
+
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        simulator.process_bar(bar_day1)
+
+        assert len(cancelled) == 1
+        assert cancelled[0][0] is order2
+        assert f"OCO: order {order1.orderId} filled" in cancelled[0][1]
+
+    def test_oco_three_orders_one_fills(self, simulator, bar_day1):
+        """OCO group with 3 orders - one fill cancels two."""
+        # Bar: open=100, high=105, low=95
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')  # Fills
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')  # Cancelled
+        order3 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')  # Cancelled
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+        simulator.submit_order(order3)
+
+        fills = simulator.process_bar(bar_day1)
+
+        assert len(fills) == 1
+        assert fills[0].order.orderId == order1.orderId
+        assert len(simulator.get_active_orders()) == 0
+        assert order1.status == 'FILLED'
+        assert order2.status == 'CANCELLED'
+        assert order3.status == 'CANCELLED'
+
+    def test_oco_mixed_order_types(self, simulator):
+        """OCO with LimitOrder + StopOrder."""
+        # Bar: open=100, high=105, low=95
+        # Sell limit at 104 fills (high=105 >= 104)
+        # Stop at 96 should be cancelled
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=Decimal('100'),
+            high=Decimal('105'),
+            low=Decimal('95'),
+            close=Decimal('102'),
+            volume=1000
+        )
+
+        limit_order = LimitOrder(action='SELL', totalQuantity=100, price=Decimal('104'), ocaGroup='exit_bracket')
+        stop_order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('96'), ocaGroup='exit_bracket')
+
+        simulator.submit_order(limit_order)
+        simulator.submit_order(stop_order)
+
+        fills = simulator.process_bar(bar)
+
+        # Limit should fill (closer to open at 100 vs stop at 96)
+        assert len(fills) == 1
+        assert fills[0].order.orderId == limit_order.orderId
+        assert limit_order.status == 'FILLED'
+        assert stop_order.status == 'CANCELLED'
+        assert simulator.get_order(stop_order.orderId) is None
+
+    def test_oco_order_status_after_user_cancel(self, simulator):
+        """Order status is set to CANCELLED when user cancels."""
+        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
+        simulator.submit_order(order)
+
+        assert order.status == 'PENDING'
+
+        simulator.cancel_order(order.orderId)
+
+        assert order.status == 'CANCELLED'
+
+    def test_oco_order_status_after_fill(self, simulator, bar_day1):
+        """Order status is set to FILLED when order fills."""
+        order = MarketOrder(action='BUY', totalQuantity=100)
+        simulator.submit_order(order)
+
+        assert order.status == 'PENDING'
+
+        simulator.process_bar(bar_day1)
+
+        assert order.status == 'FILLED'
+
+    def test_oco_independent_groups(self, simulator, bar_day1):
+        """Orders in different OCA groups don't affect each other."""
+        # Group 1
+        order1a = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='group_1')  # Fills
+        order1b = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='group_1')  # Cancelled
+
+        # Group 2 - independent
+        order2a = MarketOrder(action='SELL', totalQuantity=50, ocaGroup='group_2')  # Fills
+        order2b = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('120'), ocaGroup='group_2')  # Cancelled
+
+        simulator.submit_order(order1a)
+        simulator.submit_order(order1b)
+        simulator.submit_order(order2a)
+        simulator.submit_order(order2b)
+
+        fills = simulator.process_bar(bar_day1)
+
+        assert len(fills) == 2  # Both groups had a fill
+        assert order1a.status == 'FILLED'
+        assert order1b.status == 'CANCELLED'
+        assert order2a.status == 'FILLED'
+        assert order2b.status == 'CANCELLED'
+
+    def test_oco_fills_on_second_bar(self, simulator, bar_day1, bar_day2):
+        """OCO orders pending on first bar, one fills on second bar."""
+        # Bar1: open=100, high=105, low=95
+        # Bar2: open=102, high=110, low=100
+        # Both limits at 90 and 85 won't fill on bar1
+        # After bar1, change order1 price to 101 (will fill on bar2)
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        fills1 = simulator.process_bar(bar_day1)
+        assert len(fills1) == 0
+
+        # Update order1 to fill on bar2
+        simulator.update_order(order1.orderId, price=Decimal('101'))
+
+        fills2 = simulator.process_bar(bar_day2)
+        assert len(fills2) == 1
+        assert fills2[0].order.orderId == order1.orderId
+        assert order1.status == 'FILLED'
+        assert order2.status == 'CANCELLED'
 
 
 # endregion

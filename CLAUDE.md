@@ -62,13 +62,26 @@ sim = Simulator()
 sim.on_fill(lambda fill: print(f"Filled: {fill.execution.price}"))
 sim.on_cancel(lambda order, reason: print(f"Cancelled: {reason}"))
 
-sim.submit_order(order)      # Returns order ID
+sim.submit_order(order)      # Returns order ID (uses order.ocaGroup if set)
 sim.cancel_order(order_id)   # Returns True if found
 sim.update_order(order_id, price=new_price)  # Modify active order
 sim.get_order(order_id)      # Query single order
 sim.get_active_orders()      # Query all active orders
 
 fills = sim.process_bar(bar)  # Process bar, returns fills
+```
+
+**OCO (One-Cancels-Other) Orders:**
+```python
+# Set ocaGroup on orders to link them
+take_profit = LimitOrder(action='SELL', totalQuantity=100, price=Decimal('110'), ocaGroup='exit_bracket')
+stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('90'), ocaGroup='exit_bracket')
+
+sim.submit_order(take_profit)
+sim.submit_order(stop_loss)
+
+# When either fills, the other is automatically cancelled
+# Order closest to bar.open fills first when multiple could fill
 ```
 
 Bar processing algorithm:

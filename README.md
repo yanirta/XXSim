@@ -33,7 +33,6 @@ XSim relies on OHLC Data to simulate the inner motion of prices within single da
 ## Not supported order types (at the moment)
 - Trailing Stop Limit Orders
 - Market-on-Close (MOC) / Limit-on-Close (LOC)
-- Bracket Orders (OCO - One-Cancels-Other)
 - Market-if-Touched (MIT)
 - Others...
 
@@ -106,6 +105,7 @@ sim.run(historical_bars)
 The Simulator supports:
 - **Order management**: submit, cancel, update, query orders
 - **TIF (Time-In-Force)**: GTC, DAY (expires on date change), GTD (expires after date)
+- **OCO (One-Cancels-Other)**: Link orders via `ocaGroup` - when one fills, siblings are cancelled
 - **Callbacks**: on_fill, on_cancel, on_update, on_bar
 
 ## Development

@@ -2,6 +2,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class Simulator:
         self._config = config or SimulatorConfig()
         self._engine = ExecutionEngine()
         self._active_orders: dict[int, Order] = {}
+        self._oca_groups: dict[str, set[int]] = {}  # ocaGroup -> {orderId, ...}
         self._last_bar_date: Optional[date] = None
 
         # Callbacks
@@ -54,11 +56,16 @@ class Simulator:
         """Submit an order to the simulator.
 
         Args:
-            order: Order to submit
+            order: Order to submit. Set order.ocaGroup to link orders in an
+                   OCA group (one-cancels-all).
 
         Returns:
             The order ID
         """
+        if order.ocaGroup:
+            if order.ocaGroup not in self._oca_groups:
+                self._oca_groups[order.ocaGroup] = set()
+            self._oca_groups[order.ocaGroup].add(order.orderId)
         self._active_orders[order.orderId] = order
         return order.orderId
 
@@ -73,6 +80,7 @@ class Simulator:
         """
         order = self._active_orders.pop(order_id, None)
         if order is not None:
+            order.status = 'CANCELLED'
             self._invoke_cancel_callbacks(order, "User cancelled")
             return True
         return False
@@ -135,12 +143,13 @@ class Simulator:
         Algorithm:
         1. Expire DAY orders if date changed
         2. Expire GTD orders past goodTillDate
-        3. For each active order:
+        3. Sort orders by distance to bar.open (for OCO priority)
+        4. For each active order (skipping OCO-cancelled):
            a. Execute via ExecutionEngine
-           b. If FILLED: remove order, invoke on_fill
+           b. If FILLED: remove order, cancel OCO siblings, invoke on_fill
            c. If PARTIAL: remove parent, add child(ren) as active
            d. If PENDING: keep (state already mutated in-place)
-        4. Return all fills
+        5. Return all fills
 
         Args:
             bar: Bar data to process
@@ -160,34 +169,47 @@ class Simulator:
         # Update last bar date
         self._last_bar_date = current_date
 
-        # 3. Process each active order
+        # 3. Sort orders by distance to open price for OCO priority
+        orders_to_process = sorted(
+            self._active_orders.items(),
+            key=lambda x: self._distance_to_open(x[1], bar)
+        )
+
+        # 4. Process each active order
         all_fills: list[Fill] = []
-        orders_to_remove: list[int] = []
         orders_to_add: list[Order] = []
 
-        for order_id, order in list(self._active_orders.items()):
+        for order_id, order in orders_to_process:
+            # Skip if already cancelled by OCO sibling
+            if order_id not in self._active_orders:
+                continue
+
             result = self._engine.execute(order, bar)
 
             if result.status == 'FILLED':
                 # Completely filled - remove order
-                orders_to_remove.append(order_id)
+                self._active_orders.pop(order_id, None)
+                order.status = 'FILLED'
                 all_fills.extend(result.fills)
                 for fill in result.fills:
                     self._invoke_fill_callbacks(fill)
+                # Cancel OCO siblings
+                self._cancel_oca_siblings(order)
 
             elif result.status == 'PARTIAL':
                 # Parent filled, children pending - remove parent, add children
-                orders_to_remove.append(order_id)
+                self._active_orders.pop(order_id, None)
+                order.status = 'FILLED'
                 orders_to_add.extend(result.pending_orders)
                 all_fills.extend(result.fills)
                 for fill in result.fills:
                     self._invoke_fill_callbacks(fill)
+                # Cancel OCO siblings
+                self._cancel_oca_siblings(order)
 
             # PENDING: keep order (state already mutated in-place by engine)
 
-        # Apply removals and additions
-        for order_id in orders_to_remove:
-            self._active_orders.pop(order_id, None)
+        # Apply additions
         for order in orders_to_add:
             self._active_orders[order.orderId] = order
 
@@ -195,6 +217,40 @@ class Simulator:
         self._invoke_bar_callbacks(bar, all_fills)
 
         return all_fills
+
+    def _distance_to_open(self, order: Order, bar: BarData) -> Decimal:
+        """Calculate distance from order's trigger price to bar.open.
+
+        Used to determine OCO priority - order closest to open fills first.
+
+        Args:
+            order: Order to calculate distance for
+            bar: Bar data with open price
+
+        Returns:
+            Absolute distance from order's price to bar.open
+        """
+        if order.orderType == 'MKT':
+            return Decimal('0')
+        price = order.price or bar.open
+        return abs(price - bar.open)
+
+    def _cancel_oca_siblings(self, filled_order: Order) -> None:
+        """Cancel all other orders in the same OCA group.
+
+        Args:
+            filled_order: The order that filled
+        """
+        if not filled_order.ocaGroup:
+            return
+        siblings = self._oca_groups.get(filled_order.ocaGroup, set())
+        for sibling_id in list(siblings):
+            if sibling_id != filled_order.orderId and sibling_id in self._active_orders:
+                sibling = self._active_orders.pop(sibling_id)
+                sibling.status = 'CANCELLED'
+                self._invoke_cancel_callbacks(sibling, f"OCO: order {filled_order.orderId} filled")
+        # Clean up the group
+        self._oca_groups.pop(filled_order.ocaGroup, None)
 
     def run(self, bars) -> None:
         """Process a sequence of bars.
@@ -218,6 +274,7 @@ class Simulator:
 
         for order_id, order in orders_to_expire:
             self._active_orders.pop(order_id)
+            order.status = 'CANCELLED'
             self._invoke_cancel_callbacks(order, "DAY order expired")
 
     def _expire_gtd_orders(self, current_date: date) -> None:
@@ -241,6 +298,7 @@ class Simulator:
 
         for order_id, order in orders_to_expire:
             self._active_orders.pop(order_id)
+            order.status = 'CANCELLED'
             self._invoke_cancel_callbacks(order, "GTD order expired")
 
     # endregion
