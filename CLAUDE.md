@@ -16,10 +16,10 @@ source ./.venv/bin/activate
 pytest tests/ -v
 
 # Run a specific test file
-pytest tests/test_stop_limit_orders_execution.py -v
+pytest tests/test_stop_limit_orders_execEngine.py -v
 
 # Run a single test
-pytest tests/test_stop_limit_orders_execution.py::test_stop_limit_execution -v
+pytest tests/test_stop_limit_orders_execEngine.py::test_stop_limit_execution -v
 
 # Visualize stop-limit formations
 python docs/stop-limit-chart-generator.py test-data/stop-limit/<filename.csv>
@@ -32,12 +32,10 @@ python docs/trailing-stop-chart-generator.py test-data/trailing-stop/<filename.c
 
 ### Core Components
 
-- **`src/execution.py`**: `ExecutionEngine` - recursive order execution against bar data. Handles order type dispatch and parent-child order relationships.
+- **`src/execEngine.py`**: `ExecutionEngine` - recursive order execution against bar data. Handles order type dispatch and parent-child order relationships.
 - **`src/models/order.py`**: Order hierarchy using Pydantic. Base `Order` class with specialized subclasses (`MarketOrder`, `LimitOrder`, `StopOrder`, `StopLimitOrder`, `TrailingStopMarket`).
 - **`src/models/bar.py`**: `BarData` - OHLCV candlestick representation.
 - **`src/models/fill.py`**: `Fill`, `Execution`, `CommissionReport` - execution result models.
-- **`src/models/execution_result.py`**: `ExecutionResult` - container for fills and pending orders.
-
 ### Execution Flow
 
 Orders follow a recursive parent-child pattern:
@@ -52,21 +50,21 @@ The engine is stateless per-bar; order state (e.g., trailing extreme prices) is 
 - **`src/simulator.py`**: `Simulator` - wraps `ExecutionEngine` to manage order lifecycle across multiple bars.
 
 Key features:
-- **Order Book**: Simple dict `{orderId: Order}` tracking active orders
+- **Trade Lifecycle**: Wraps orders in `Trade` objects (order + orderStatus + fills + log) matching IB's model
 - **TIF Support**: GTC (never expires), DAY (expires on date change), GTD (expires after goodTillDate), GAT (goodAfterTime - order not active until specified time)
-- **Callbacks**: `on_fill`, `on_cancel`, `on_update`, `on_bar` for event notifications
+- **Callbacks**: `on_fill`, `on_cancel`, `on_status`, `on_bar` for event notifications
 
 API:
 ```python
 sim = Simulator()
-sim.on_fill(lambda fill: print(f"Filled: {fill.execution.price}"))
-sim.on_cancel(lambda order, reason: print(f"Cancelled: {reason}"))
+sim.on_fill(lambda trade, fill: print(f"Filled: {fill.execution.price}"))
+sim.on_cancel(lambda trade: print(f"Cancelled: {trade.log[-1].message}"))
 
-sim.submit_order(order)      # Returns order ID (uses order.ocaGroup if set)
-sim.cancel_order(order_id)   # Returns True if found
+trade = sim.submit_order(order)  # Returns Trade object
+sim.cancel_order(order_id)       # Returns True if found
 sim.update_order(order_id, price=new_price)  # Modify active order
-sim.get_order(order_id)      # Query single order
-sim.get_active_orders()      # Query all active orders
+sim.get_trade(order_id)          # Query single trade
+sim.get_active_trades()          # Query all active trades
 
 fills = sim.process_bar(bar)  # Process bar, returns fills
 ```
@@ -104,7 +102,7 @@ Bar processing algorithm:
 2. Expire GTD orders past goodTillDate
 3. Skip orders where goodAfterTime hasn't been reached
 4. Execute each active order via ExecutionEngine
-5. Handle FILLED (remove), PARTIAL (promote children), PENDING (keep)
+5. Handle FILLED (remove, update Trade status, submit bracket children as new trades), PENDING (keep)
 
 ib_insync-style usage with `on_bar` and `run()`:
 ```python

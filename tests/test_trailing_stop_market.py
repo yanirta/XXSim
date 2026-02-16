@@ -14,7 +14,7 @@ import csv
 from pathlib import Path
 
 from xtrading_models import TrailingStopMarket, BarData
-from execution import ExecutionEngine
+from execEngine import ExecutionEngine
 
 
 @pytest.fixture
@@ -84,23 +84,19 @@ def test_buy_trailing_stop_market_execution(engine, formation):
             order.stopPrice = formation['CarriedExtremePrice'] + formation['TrailingDistance']
         else:
             order.stopPrice = formation['CarriedExtremePrice'] * (Decimal('1') + formation['TrailingPercent'] / Decimal('100'))
-    result = engine.execute(order, bar)
+    fills = engine.execute(order, bar)
     expected_fill = formation['OrderFill']
     if expected_fill == 'No Fill':
-        assert len(result.fills) == 0
-        assert len(result.pending_orders) == 1
-        pending_order = result.pending_orders[0]
-        assert pending_order.extremePrice is not None
-        assert pending_order.stopPrice is not None
+        assert len(fills) == 0
+        assert order.extremePrice is not None
+        assert order.stopPrice is not None
     else:
         expected_price = Decimal(expected_fill)
-        assert len(result.fills) == 2
-        assert len(result.pending_orders) == 0
-        fill = result.fills[1]
+        assert len(fills) == 1
+        fill = fills[0]
         assert fill.execution.price == expected_price
         assert fill.execution.shares == 100
-        assert fill.order.orderType == 'MKT'
-        assert len(result.pending_orders) == 0
+        assert fill.order.orderType == 'TRAIL'
 
 
 @pytest.mark.parametrize("formation", sell_formations, ids=[f['Formation'] for f in sell_formations])
@@ -125,23 +121,19 @@ def test_sell_trailing_stop_market_execution(engine, formation):
             order.stopPrice = formation['CarriedExtremePrice'] - formation['TrailingDistance']
         else:
             order.stopPrice = formation['CarriedExtremePrice'] * (Decimal('1') - formation['TrailingPercent'] / Decimal('100'))
-    result = engine.execute(order, bar)
+    fills = engine.execute(order, bar)
     expected_fill = formation['OrderFill']
     if expected_fill == 'No Fill':
-        assert len(result.fills) == 0
-        assert len(result.pending_orders) == 1
-        pending_order = result.pending_orders[0]
-        assert pending_order.extremePrice is not None
-        assert pending_order.stopPrice is not None
+        assert len(fills) == 0
+        assert order.extremePrice is not None
+        assert order.stopPrice is not None
     else:
         expected_price = Decimal(expected_fill)
-        assert len(result.fills) == 2
-        assert len(result.pending_orders) == 0
-        fill = result.fills[1]
+        assert len(fills) == 1
+        fill = fills[0]
         assert fill.execution.price == expected_price
         assert fill.execution.shares == 100
-        assert fill.order.orderType == 'MKT'
-        assert len(result.pending_orders) == 0
+        assert fill.order.orderType == 'TRAIL'
 
 
 # Add specific edge case tests if needed
@@ -166,12 +158,10 @@ def test_trailing_stop_market_state_initialization(engine):
     assert order.extremePrice is None
     assert order.stopPrice is None
     
-    result = engine.execute(order, bar)
-    
-    # After execution, verify state initialization
-    # (Either filled or pending, but state should be set)
-    if result.pending_orders:
-        pending = result.pending_orders[0]
-        assert pending.extremePrice == Decimal('95.00')  # bar.low for BUY
-        assert pending.currentStopPrice == Decimal('105.00')  # extremePrice + distance
+    fills = engine.execute(order, bar)
+
+    # After execution, verify state initialization (mutated in-place)
+    if not fills:
+        assert order.extremePrice == Decimal('95.00')  # bar.low for BUY
+        assert order.stopPrice == Decimal('105.00')  # extremePrice + distance
 

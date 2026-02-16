@@ -9,8 +9,11 @@ from xtrading_models import (
     Execution,
     CommissionReport,
     Fill,
+    Trade,
+    OrderStatus,
+    TradeLogEntry,
 )
-from .execution import ExecutionEngine, ExecutionConfig
+from .execEngine import ExecutionEngine, ExecutionConfig
 from .simulator import Simulator, SimulatorConfig
 
 __version__ = "0.1.0"
@@ -25,6 +28,9 @@ __all__ = [
     "Execution",
     "CommissionReport",
     "Fill",
+    "Trade",
+    "OrderStatus",
+    "TradeLogEntry",
     "ExecutionEngine",
     "ExecutionConfig",
     "Simulator",

@@ -6,7 +6,7 @@ import csv
 import pytest
 
 from xtrading_models import StopLimitOrder, BarData
-from execution import ExecutionEngine
+from execEngine import ExecutionEngine
 
 
 # region CSV Data Loading
@@ -126,86 +126,44 @@ def test_stop_limit_formation(
     engine = ExecutionEngine()
     
     # Execute
-    result = engine.execute(order, bar)
-    
+    fills = engine.execute(order, bar)
+
     # Parse expected fills
     stop_fill_type, stop_fill_price = parse_fill(stop_fill_str)
     limit_fill_type, limit_fill_price = parse_fill(limit_fill_str)
-    
+
     # Determine expected outcomes
     if stop_fill_type is None and limit_fill_type is None:
-        # No fill - order should remain pending
-        assert len(result.fills) == 0, (
-            f"{scenario} {formation}: Expected no fills, got {len(result.fills)}"
+        # No fill - stop not triggered
+        assert len(fills) == 0, (
+            f"{scenario} {formation}: Expected no fills, got {len(fills)}"
         )
-        assert len(result.pending_orders) == 1, (
-            f"{scenario} {formation}: Expected 1 pending order (parent STP LMT)"
+        assert order.triggered is False, (
+            f"{scenario} {formation}: Order should not be triggered"
         )
-        assert result.pending_orders[0].orderType == "STP LMT"
-        
+
     elif stop_fill_type is not None and limit_fill_type is None:
-        # Partial fill - stop triggered but limit not reached
-        assert len(result.fills) == 1, (
-            f"{scenario} {formation}: Expected 1 fill (stop trigger), got {len(result.fills)}"
+        # Stop triggered but limit not reached - order stays with triggered=True
+        assert len(fills) == 0, (
+            f"{scenario} {formation}: Expected 0 fills (stop is internal state change), got {len(fills)}"
         )
-        assert len(result.pending_orders) == 1, (
-            f"{scenario} {formation}: Expected 1 pending order (child limit)"
+        assert order.triggered is True, (
+            f"{scenario} {formation}: Order should be triggered"
         )
-        
-        # Validate stop trigger fill
-        stop_fill = result.fills[0]
-        assert stop_fill.execution.price == stop_fill_price, (
-            f"{scenario} {formation}: Stop fill price mismatch. "
-            f"Expected {stop_fill_price}, got {stop_fill.execution.price}"
-        )
-        assert stop_fill.parentId == 0, (
-            f"{scenario} {formation}: Stop trigger should have parentId=0"
-        )
-        
-        # Validate pending child order
-        child_order = result.pending_orders[0]
-        assert child_order.orderType == "LMT", (
-            f"{scenario} {formation}: Child order should be LMT type"
-        )
-        assert child_order.price == limit, (
-            f"{scenario} {formation}: Child limit price should be {limit}"
-        )
-        
+
     else:
-        # Complete fill - both stop and limit executed
-        assert len(result.fills) == 2, (
-            f"{scenario} {formation}: Expected 2 fills (stop + limit), got {len(result.fills)}"
+        # Complete fill - stop triggered and limit executed (single fill at limit price)
+        assert len(fills) == 1, (
+            f"{scenario} {formation}: Expected 1 fill (at limit price), got {len(fills)}"
         )
-        assert len(result.pending_orders) == 0, (
-            f"{scenario} {formation}: Expected no pending orders after complete fill"
+
+        fill = fills[0]
+        assert fill.execution.price == limit_fill_price, (
+            f"{scenario} {formation}: Fill price mismatch. "
+            f"Expected {limit_fill_price}, got {fill.execution.price}"
         )
-        
-        # Validate stop trigger fill (first fill)
-        stop_fill = result.fills[0]
-        assert stop_fill.execution.price == stop_fill_price, (
-            f"{scenario} {formation}: Stop fill price mismatch. "
-            f"Expected {stop_fill_price}, got {stop_fill.execution.price}"
-        )
-        assert stop_fill.parentId == 0, (
-            f"{scenario} {formation}: Stop trigger should have parentId=0"
-        )
-        
-        # Validate limit execution fill (second fill)
-        limit_fill = result.fills[1]
-        assert limit_fill.execution.price == limit_fill_price, (
-            f"{scenario} {formation}: Limit fill price mismatch. "
-            f"Expected {limit_fill_price}, got {limit_fill.execution.price}"
-        )
-        assert limit_fill.parentId == stop_fill.order.orderId, (
-            f"{scenario} {formation}: Limit fill should have parentId={stop_fill.order.orderId}"
-        )
-        
-        # Validate fill times
-        assert stop_fill.time == bar.date, (
-            f"{scenario} {formation}: Stop fill time should match bar date"
-        )
-        assert limit_fill.time == bar.date, (
-            f"{scenario} {formation}: Limit fill time should match bar date"
+        assert fill.time == bar.date, (
+            f"{scenario} {formation}: Fill time should match bar date"
         )
 
 

@@ -8,7 +8,7 @@ from xtrading_models import (
     MarketOrder,
     LimitOrder,
     StopOrder,
-    Order
+    Trade,
 )
 from xtrading_models.order import StopLimitOrder, TrailingStopMarket
 
@@ -69,30 +69,33 @@ def bar_day3():
 class TestOrderSubmission:
     """Tests for order submission."""
 
-    def test_submit_order_returns_order_id(self, simulator):
-        """Submit returns the order ID."""
+    def test_submit_order_returns_trade(self, simulator):
+        """Submit returns a Trade object."""
         order = MarketOrder(action='BUY', totalQuantity=100)
-        order_id = simulator.submit_order(order)
-        assert order_id == order.orderId
+        trade = simulator.submit_order(order)
+        assert isinstance(trade, Trade)
+        assert trade.order is order
+        assert trade.orderStatus.status == 'Submitted'
+        assert trade.orderStatus.orderId == order.orderId
 
-    def test_submit_order_tracked_in_active_orders(self, simulator):
-        """Submitted order is tracked in active orders."""
+    def test_submit_order_tracked_in_active_trades(self, simulator):
+        """Submitted order is tracked in active trades."""
         order = MarketOrder(action='BUY', totalQuantity=100)
-        simulator.submit_order(order)
-        assert simulator.get_order(order.orderId) is order
-        assert order in simulator.get_active_orders()
+        trade = simulator.submit_order(order)
+        assert simulator.get_trade(order.orderId) is trade
+        assert trade in simulator.get_active_trades()
 
     def test_submit_multiple_orders(self, simulator):
         """Multiple orders can be submitted and tracked."""
         order1 = MarketOrder(action='BUY', totalQuantity=100)
         order2 = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('150'))
 
-        simulator.submit_order(order1)
-        simulator.submit_order(order2)
+        trade1 = simulator.submit_order(order1)
+        trade2 = simulator.submit_order(order2)
 
-        assert len(simulator.get_active_orders()) == 2
-        assert simulator.get_order(order1.orderId) is order1
-        assert simulator.get_order(order2.orderId) is order2
+        assert len(simulator.get_active_trades()) == 2
+        assert simulator.get_trade(order1.orderId) is trade1
+        assert simulator.get_trade(order2.orderId) is trade2
 
 
 # endregion
@@ -111,14 +114,14 @@ class TestCancellation:
         assert result is True
 
     def test_cancel_order_removes_from_active(self, simulator):
-        """Cancelled order is removed from active orders."""
+        """Cancelled order is removed from active trades."""
         order = MarketOrder(action='BUY', totalQuantity=100)
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         simulator.cancel_order(order.orderId)
 
-        assert simulator.get_order(order.orderId) is None
-        assert order not in simulator.get_active_orders()
+        assert simulator.get_trade(order.orderId) is None
+        assert trade not in simulator.get_active_trades()
 
     def test_cancel_nonexistent_order_returns_false(self, simulator):
         """Cancel returns False for non-existent order."""
@@ -126,21 +129,22 @@ class TestCancellation:
         assert result is False
 
     def test_cancel_triggers_callback(self, simulator):
-        """Cancel invokes on_cancel callback with reason."""
-        cancelled_orders = []
+        """Cancel invokes on_cancel callback."""
+        cancelled_trades = []
 
-        def on_cancel(order, reason):
-            cancelled_orders.append((order, reason))
+        def on_cancel(trade):
+            cancelled_trades.append(trade)
 
         simulator.on_cancel(on_cancel)
 
         order = MarketOrder(action='BUY', totalQuantity=100)
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
         simulator.cancel_order(order.orderId)
 
-        assert len(cancelled_orders) == 1
-        assert cancelled_orders[0][0] is order
-        assert cancelled_orders[0][1] == "User cancelled"
+        assert len(cancelled_trades) == 1
+        assert cancelled_trades[0] is trade
+        assert trade.orderStatus.status == 'Cancelled'
+        assert trade.log[-1].message == 'User cancelled'
 
 
 # endregion
@@ -153,42 +157,44 @@ class TestBarProcessing:
     def test_market_order_fills_immediately(self, simulator, bar_day1):
         """Market order fills on first bar."""
         order = MarketOrder(action='BUY', totalQuantity=100)
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 1
         assert fills[0].execution.price == Decimal('100')  # Open price
-        assert simulator.get_order(order.orderId) is None  # Removed
+        assert simulator.get_trade(order.orderId) is None  # Removed
+        assert trade.orderStatus.status == 'Filled'
 
     def test_limit_order_fills_when_price_reached(self, simulator, bar_day1):
         """Limit order fills when price reaches limit."""
         # Buy limit at 96, bar low is 95 - should fill
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 1
         assert fills[0].execution.price == Decimal('96')
-        assert simulator.get_order(order.orderId) is None
+        assert simulator.get_trade(order.orderId) is None
+        assert trade.orderStatus.status == 'Filled'
 
     def test_limit_order_stays_pending_when_price_not_reached(self, simulator, bar_day1):
         """Limit order stays pending when price not reached."""
         # Buy limit at 90, bar low is 95 - should not fill
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
     def test_multi_bar_fill(self, simulator, bar_day1, bar_day2):
         """Order fills across multiple bars."""
         # Buy limit at 90, bar1 low is 95, bar2 low is 100 - never fills
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills1 = simulator.process_bar(bar_day1)
         assert len(fills1) == 0
@@ -196,8 +202,8 @@ class TestBarProcessing:
         fills2 = simulator.process_bar(bar_day2)
         assert len(fills2) == 0
 
-        # Order still active
-        assert simulator.get_order(order.orderId) is order
+        # Trade still active
+        assert simulator.get_trade(order.orderId) is trade
 
     def test_limit_order_fills_on_second_bar(self, simulator):
         """Limit order pending on first bar fills on second bar."""
@@ -206,43 +212,43 @@ class TestBarProcessing:
         bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('96'), high=Decimal('98'), low=Decimal('93'), close=Decimal('95'), volume=1000)
 
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('94'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills1 = simulator.process_bar(bar1)
         assert len(fills1) == 0  # Not filled yet
-        assert simulator.get_order(order.orderId) is not None
+        assert simulator.get_trade(order.orderId) is not None
 
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 1  # Filled on second bar
         assert fills2[0].execution.price == Decimal('94')
-        assert simulator.get_order(order.orderId) is None  # Removed from active
+        assert simulator.get_trade(order.orderId) is None  # Removed from active
+        assert trade.orderStatus.status == 'Filled'
 
     def test_stop_limit_partial_fill_completes_on_second_bar(self, simulator):
-        """StopLimit: stop triggers on bar1 (partial), limit fills on bar2."""
+        """StopLimit: stop triggers on bar1 (internal state), limit fills on bar2."""
         # Buy stop-limit: stop at 102, limit at 101
-        # Bar1: high=105 triggers stop, but low=102 doesn't reach limit 101 -> PARTIAL
-        # Bar2: low=100 reaches limit 101 -> fills
+        # Bar1: high=105 triggers stop, but low=102 doesn't reach limit 101 → triggered=True, pending
+        # Bar2: low=100 reaches limit 101 → fills
         bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('103'), high=Decimal('105'), low=Decimal('102'), close=Decimal('104'), volume=1000)
         bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('103'), high=Decimal('104'), low=Decimal('100'), close=Decimal('102'), volume=1000)
 
         order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=Decimal('102'), limitPrice=Decimal('101'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
-        # Bar 1: Stop triggers, limit child becomes pending
+        # Bar 1: Stop triggers (internal state change), limit not reached
         fills1 = simulator.process_bar(bar1)
-        assert len(fills1) == 1  # Only stop trigger
-        assert simulator.get_order(order.orderId) is None  # Parent removed
-        # Child limit order should now be active
-        active = simulator.get_active_orders()
+        assert len(fills1) == 0
+        assert order.triggered is True
+        active = simulator.get_active_trades()
         assert len(active) == 1
-        assert active[0].orderType == 'LMT'
-        assert active[0].price == Decimal('101')
+        assert active[0] is trade
 
-        # Bar 2: Limit fills
+        # Bar 2: Limit fills (order already triggered, evaluates as limit)
         fills2 = simulator.process_bar(bar2)
-        assert len(fills2) == 1  # Limit fills
+        assert len(fills2) == 1
         assert fills2[0].execution.price == Decimal('101')
-        assert len(simulator.get_active_orders()) == 0  # All done
+        assert len(simulator.get_active_trades()) == 0
+        assert trade.orderStatus.status == 'Filled'
 
     def test_trailing_stop_market_across_three_bars(self, simulator):
         """Trailing stop: initializes bar1, trails up bar2, triggers bar3."""
@@ -259,7 +265,7 @@ class TestBarProcessing:
             totalQuantity=100,
             trailingDistance=Decimal('5')
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         # Bar 1: Initialize extreme and stop
         fills1 = simulator.process_bar(bar1)
@@ -275,34 +281,36 @@ class TestBarProcessing:
 
         # Bar 3: Price drops below stop, triggers
         fills3 = simulator.process_bar(bar3)
-        assert len(fills3) == 2  # Stop trigger + market child fill
-        assert fills3[-1].execution.price == Decimal('105')  # Fills at stop price
-        assert len(simulator.get_active_orders()) == 0
+        assert len(fills3) == 1
+        assert fills3[0].execution.price == Decimal('105')  # Fills at stop price
+        assert len(simulator.get_active_trades()) == 0
+        assert trade.orderStatus.status == 'Filled'
 
     def test_stop_order_triggers_on_second_bar(self, simulator):
         """Stop order pending on bar1, triggers on bar2."""
         # Bar1: low=98 doesn't reach stop=97
-        # Bar2: low=95 triggers stop=97, market child fills
+        # Bar2: low=95 triggers stop=97
         bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('102'), low=Decimal('98'), close=Decimal('101'), volume=1000)
         bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('99'), high=Decimal('100'), low=Decimal('95'), close=Decimal('96'), volume=1000)
 
         order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('97'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         # Bar 1: Stop not triggered
         fills1 = simulator.process_bar(bar1)
         assert len(fills1) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
-        # Bar 2: Stop triggers and market child fills
+        # Bar 2: Stop triggers and fills
         fills2 = simulator.process_bar(bar2)
-        assert len(fills2) == 2  # Stop trigger + market child
-        assert fills2[-1].execution.price == Decimal('97')  # Fills at stop price
-        assert len(simulator.get_active_orders()) == 0
+        assert len(fills2) == 1
+        assert fills2[0].execution.price == Decimal('97')  # Fills at stop price
+        assert len(simulator.get_active_trades()) == 0
+        assert trade.orderStatus.status == 'Filled'
 
-    def test_stop_limit_child_pending_across_multiple_bars(self, simulator):
-        """StopLimit: stop triggers bar1, limit child stays pending bars 2-3, fills bar4."""
-        # Bar1: stop triggers but limit not reached
+    def test_stop_limit_triggered_pending_across_multiple_bars(self, simulator):
+        """StopLimit: stop triggers bar1 (internal state), limit fills bar4."""
+        # Bar1: stop triggers but limit not reached → triggered=True, stays pending
         # Bar2-3: limit still not reached
         # Bar4: limit finally fills
         bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('103'), high=Decimal('105'), low=Decimal('102'), close=Decimal('104'), volume=1000)
@@ -311,32 +319,33 @@ class TestBarProcessing:
         bar4 = BarData(date=datetime(2025, 1, 1, 9, 33), open=Decimal('102'), high=Decimal('103'), low=Decimal('99'), close=Decimal('100'), volume=1000)
 
         order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=Decimal('102'), limitPrice=Decimal('100'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
-        # Bar 1: Stop triggers, limit child becomes pending
+        # Bar 1: Stop triggers (internal state change), limit not reached
         fills1 = simulator.process_bar(bar1)
-        assert len(fills1) == 1  # Stop trigger only
-        active = simulator.get_active_orders()
+        assert len(fills1) == 0
+        active = simulator.get_active_trades()
         assert len(active) == 1
-        limit_child = active[0]
-        assert limit_child.orderType == 'LMT'
-        assert limit_child.price == Decimal('100')
+        assert active[0] is trade
+        assert order.triggered is True
 
         # Bar 2: Limit still not reached (low=103 > 100)
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 0
-        assert simulator.get_order(limit_child.orderId) is limit_child
+        assert simulator.get_trade(order.orderId) is trade
 
         # Bar 3: Limit still not reached (low=104 > 100)
         fills3 = simulator.process_bar(bar3)
         assert len(fills3) == 0
-        assert simulator.get_order(limit_child.orderId) is limit_child
+        assert simulator.get_trade(order.orderId) is trade
+        assert len(simulator.get_active_trades()) == 1
 
         # Bar 4: Limit fills (low=99 < 100)
         fills4 = simulator.process_bar(bar4)
         assert len(fills4) == 1
         assert fills4[0].execution.price == Decimal('100')
-        assert len(simulator.get_active_orders()) == 0
+        assert len(simulator.get_active_trades()) == 0
+        assert trade.orderStatus.status == 'Filled'
 
     def test_multiple_parent_orders_trigger_on_different_bars(self, simulator):
         """Two stop orders submitted together, triggering on different bars."""
@@ -348,33 +357,39 @@ class TestBarProcessing:
         stop1 = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('99'))
         stop2 = StopOrder(action='SELL', totalQuantity=50, stopPrice=Decimal('95'))
 
-        simulator.submit_order(stop1)
-        simulator.submit_order(stop2)
+        trade1 = simulator.submit_order(stop1)
+        trade2 = simulator.submit_order(stop2)
 
         # Bar 1: Only stop1 triggers
         fills1 = simulator.process_bar(bar1)
-        assert len(fills1) == 2  # Stop1 trigger + market child
-        assert simulator.get_order(stop1.orderId) is None
-        assert simulator.get_order(stop2.orderId) is stop2  # Still pending
+        assert len(fills1) == 1
+        assert stop1.triggered is True
+        assert simulator.get_trade(stop1.orderId) is None
+        assert simulator.get_trade(stop2.orderId) is trade2  # Still pending
+        assert stop2.triggered is False
+        assert trade1.orderStatus.status == 'Filled'
 
         # Bar 2: stop2 triggers
         fills2 = simulator.process_bar(bar2)
-        assert len(fills2) == 2  # Stop2 trigger + market child
-        assert len(simulator.get_active_orders()) == 0
+        assert len(fills2) == 1
+        assert stop2.triggered is True
+        assert len(simulator.get_active_trades()) == 0
+        assert trade2.orderStatus.status == 'Filled'
 
     def test_stop_order_triggers_and_fills(self, simulator, bar_day1):
-        """Stop order triggers and fills via child market order."""
+        """Stop order triggers and fills."""
         # Sell stop at 97, bar low is 95 - should trigger and fill
         order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('97'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
 
-        # Should have 2 fills: stop trigger + market child
-        assert len(fills) == 2
-        assert simulator.get_order(order.orderId) is None
+        assert len(fills) == 1
+        assert order.triggered is True
+        assert simulator.get_trade(order.orderId) is None
+        assert trade.orderStatus.status == 'Filled'
 
-    def test_trailing_stop_updates_across_bars(self, simulator, bar_day1, bar_day2):
+    def test_trailing_stop_updates_across_bars(self, simulator, bar_day1):
         """Trailing stop updates extreme price across bars."""
         # Buy trailing stop with $5 trailing distance
         order = TrailingStopMarket(
@@ -404,7 +419,7 @@ class TestBarProcessing:
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 2
-        assert len(simulator.get_active_orders()) == 0
+        assert len(simulator.get_active_trades()) == 0
 
 
 # endregion
@@ -417,46 +432,47 @@ class TestTIFExpiration:
     def test_gtc_never_expires(self, simulator, bar_day1, bar_day2, bar_day3):
         """GTC orders never expire on date change."""
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'), tif='GTC')
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)
         simulator.process_bar(bar_day2)
         simulator.process_bar(bar_day3)
 
-        # Order still active after 3 days
-        assert simulator.get_order(order.orderId) is order
+        # Trade still active after 3 days
+        assert simulator.get_trade(order.orderId) is trade
 
     def test_day_order_expires_on_date_change(self, simulator, bar_day1, bar_day2):
         """DAY orders expire when date changes."""
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'), tif='DAY')
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills1 = simulator.process_bar(bar_day1)
         assert len(fills1) == 0
-        assert simulator.get_order(order.orderId) is order  # Still active on day 1
+        assert simulator.get_trade(order.orderId) is trade  # Still active on day 1
 
         fills2 = simulator.process_bar(bar_day2)
         assert len(fills2) == 0
-        assert simulator.get_order(order.orderId) is None  # Expired on day 2
+        assert simulator.get_trade(order.orderId) is None  # Expired on day 2
+        assert trade.orderStatus.status == 'Cancelled'
 
     def test_day_order_expiration_triggers_callback(self, simulator, bar_day1, bar_day2):
         """DAY order expiration invokes on_cancel callback."""
         cancelled = []
 
-        def on_cancel(order, reason):
-            cancelled.append((order, reason))
+        def on_cancel(trade):
+            cancelled.append(trade)
 
         simulator.on_cancel(on_cancel)
 
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'), tif='DAY')
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)
         simulator.process_bar(bar_day2)
 
         assert len(cancelled) == 1
-        assert cancelled[0][0] is order
-        assert cancelled[0][1] == "DAY order expired"
+        assert cancelled[0] is trade
+        assert trade.log[-1].message == 'DAY order expired'
 
     def test_gtd_order_expires_after_date(self, simulator, bar_day1, bar_day2, bar_day3):
         """GTD orders expire after goodTillDate."""
@@ -468,23 +484,24 @@ class TestTIFExpiration:
             tif='GTD',
             goodTillDate='20240116'  # YYYYMMDD format
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)  # Jan 15 - active
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
         simulator.process_bar(bar_day2)  # Jan 16 - still active (not past GTD)
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
         simulator.process_bar(bar_day3)  # Jan 17 - expired (past GTD)
-        assert simulator.get_order(order.orderId) is None
+        assert simulator.get_trade(order.orderId) is None
+        assert trade.orderStatus.status == 'Cancelled'
 
     def test_gtd_order_expiration_triggers_callback(self, simulator, bar_day1, bar_day2, bar_day3):
         """GTD order expiration invokes on_cancel callback."""
         cancelled = []
 
-        def on_cancel(order, reason):
-            cancelled.append((order, reason))
+        def on_cancel(trade):
+            cancelled.append(trade)
 
         simulator.on_cancel(on_cancel)
 
@@ -495,15 +512,15 @@ class TestTIFExpiration:
             tif='GTD',
             goodTillDate='20240116'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)
         simulator.process_bar(bar_day2)
         simulator.process_bar(bar_day3)
 
         assert len(cancelled) == 1
-        assert cancelled[0][0] is order
-        assert cancelled[0][1] == "GTD order expired"
+        assert cancelled[0] is trade
+        assert trade.log[-1].message == 'GTD order expired'
 
     def test_default_tif_is_empty_string(self, simulator, bar_day1, bar_day2, bar_day3):
         """Orders with empty TIF don't expire (treated like GTC)."""
@@ -511,14 +528,14 @@ class TestTIFExpiration:
         # Default tif is empty string
         assert order.tif == ''
 
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)
         simulator.process_bar(bar_day2)
         simulator.process_bar(bar_day3)
 
-        # Order still active
-        assert simulator.get_order(order.orderId) is order
+        # Trade still active
+        assert simulator.get_trade(order.orderId) is trade
 
     # GAT (Good After Time) Tests
 
@@ -539,12 +556,12 @@ class TestTIFExpiration:
             totalQuantity=100,
             goodAfterTime='20240115 10:00:00'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar)
 
         assert len(fills) == 0
-        assert simulator.get_order(order.orderId) is order  # Still active, just not executed
+        assert simulator.get_trade(order.orderId) is trade  # Still active, just not executed
 
     def test_gat_order_active_after_time(self, simulator):
         """Order with goodAfterTime is executed after that time."""
@@ -568,7 +585,7 @@ class TestTIFExpiration:
         fills = simulator.process_bar(bar)
 
         assert len(fills) == 1
-        assert simulator.get_order(order.orderId) is None
+        assert simulator.get_trade(order.orderId) is None
 
     def test_gat_order_active_at_exact_time(self, simulator):
         """Order with goodAfterTime is executed at exact time."""
@@ -617,17 +634,17 @@ class TestTIFExpiration:
             totalQuantity=100,
             goodAfterTime='20240115 10:00:00'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         # Bar 1: Not yet active
         fills1 = simulator.process_bar(bar1)
         assert len(fills1) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
         # Bar 2: Now active and fills
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 1
-        assert simulator.get_order(order.orderId) is None
+        assert simulator.get_trade(order.orderId) is None
 
     def test_gat_with_date_only_format(self, simulator, bar_day1, bar_day2):
         """Order with date-only goodAfterTime format (YYYYMMDD)."""
@@ -638,12 +655,12 @@ class TestTIFExpiration:
             totalQuantity=100,
             goodAfterTime='20240116'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         # Day 1: Not yet active
         fills1 = simulator.process_bar(bar_day1)
         assert len(fills1) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
         # Day 2: Now active
         fills2 = simulator.process_bar(bar_day2)
@@ -667,12 +684,12 @@ class TestTIFExpiration:
             price=Decimal('96'),
             goodAfterTime='20240115 10:00:00'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar)
 
         assert len(fills) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
     def test_gat_combined_with_gtd(self, simulator):
         """Order with both goodAfterTime and goodTillDate."""
@@ -710,22 +727,22 @@ class TestTIFExpiration:
             goodTillDate='20240116',
             goodAfterTime='20240115 10:00:00'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         # Bar 1 (9:30): Not active yet (GAT)
         fills1 = simulator.process_bar(bar1)
         assert len(fills1) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
         # Bar 2 (10:30): Active but limit not reached
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 0
-        assert simulator.get_order(order.orderId) is order
+        assert simulator.get_trade(order.orderId) is trade
 
         # Bar 3 (Jan 17): Expired (GTD)
         fills3 = simulator.process_bar(bar3)
         assert len(fills3) == 0
-        assert simulator.get_order(order.orderId) is None  # Expired
+        assert simulator.get_trade(order.orderId) is None  # Expired
 
     def test_gat_no_effect_when_empty(self, simulator, bar_day1):
         """Order without goodAfterTime is immediately active."""
@@ -749,25 +766,26 @@ class TestCallbacks:
         """on_fill callback is invoked when order fills."""
         fills_received = []
 
-        def on_fill(fill):
-            fills_received.append(fill)
+        def on_fill(trade, fill):
+            fills_received.append((trade, fill))
 
         simulator.on_fill(on_fill)
 
         order = MarketOrder(action='BUY', totalQuantity=100)
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
         simulator.process_bar(bar_day1)
 
         assert len(fills_received) == 1
-        assert fills_received[0].execution.price == Decimal('100')
+        assert fills_received[0][0] is trade
+        assert fills_received[0][1].execution.price == Decimal('100')
 
     def test_multiple_fill_callbacks(self, simulator, bar_day1):
         """Multiple on_fill callbacks are all invoked."""
         fills1 = []
         fills2 = []
 
-        simulator.on_fill(lambda fill: fills1.append(fill))
-        simulator.on_fill(lambda fill: fills2.append(fill))
+        simulator.on_fill(lambda _trade, fill: fills1.append(fill))
+        simulator.on_fill(lambda _trade, fill: fills2.append(fill))
 
         order = MarketOrder(action='BUY', totalQuantity=100)
         simulator.submit_order(order)
@@ -780,7 +798,7 @@ class TestCallbacks:
         """on_cancel callback is invoked when order is cancelled."""
         cancelled = []
 
-        simulator.on_cancel(lambda order, reason: cancelled.append((order, reason)))
+        simulator.on_cancel(lambda trade: cancelled.append(trade))
 
         order = MarketOrder(action='BUY', totalQuantity=100)
         simulator.submit_order(order)
@@ -788,18 +806,19 @@ class TestCallbacks:
 
         assert len(cancelled) == 1
 
-    def test_on_update_callback_invoked(self, simulator):
-        """on_update callback is invoked when order is updated."""
-        updates = []
+    def test_on_status_callback_invoked(self, simulator):
+        """on_status callback is invoked when order is updated."""
+        statuses = []
 
-        simulator.on_update(lambda order: updates.append(order))
+        simulator.on_status(lambda trade: statuses.append(trade))
 
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('100'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
         simulator.update_order(order.orderId, price=Decimal('95'))
 
-        assert len(updates) == 1
-        assert updates[0] is order
+        # Status called on submit + update
+        assert len(statuses) >= 2
+        assert statuses[-1] is trade
 
 
 # endregion
@@ -849,15 +868,16 @@ class TestOrderUpdates:
         assert result is False
 
     def test_update_triggers_callback(self, simulator):
-        """Update invokes on_update callback."""
-        updates = []
-        simulator.on_update(lambda order: updates.append(order))
+        """Update invokes on_status callback."""
+        statuses = []
+        simulator.on_status(lambda trade: statuses.append(trade))
 
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('100'))
         simulator.submit_order(order)
         simulator.update_order(order.orderId, price=Decimal('95'))
 
-        assert len(updates) == 1
+        # At least 2 status callbacks: submit + update
+        assert len(statuses) >= 2
 
 
 # endregion
@@ -900,7 +920,7 @@ class TestOnBarCallback:
         """on_bar callback can submit orders for next bar."""
         fills_count = []
 
-        def on_bar(bar, fills):
+        def on_bar(_bar, fills):
             fills_count.append(len(fills))
             # Submit order for next bar
             simulator.submit_order(MarketOrder(action='BUY', totalQuantity=100))
@@ -916,7 +936,7 @@ class TestOnBarCallback:
         """run() processes all bars in sequence."""
         bars_seen = []
 
-        simulator.on_bar(lambda bar, fills: bars_seen.append(bar))
+        simulator.on_bar(lambda bar, _fills: bars_seen.append(bar))
         simulator.run([bar_day1, bar_day2, bar_day3])
 
         assert len(bars_seen) == 3
@@ -928,10 +948,10 @@ class TestOnBarCallback:
         """Full backtest simulation using run() and on_bar."""
         fills_received = []
 
-        def strategy(bar, fills):
+        def strategy(_bar, fills):
             fills_received.extend(fills)
             # Buy on first bar
-            if len(fills_received) == 0 and len(simulator.get_active_orders()) == 0:
+            if len(fills_received) == 0 and len(simulator.get_active_trades()) == 0:
                 simulator.submit_order(MarketOrder(action='BUY', totalQuantity=100))
 
         simulator.on_bar(strategy)
@@ -961,15 +981,15 @@ class TestIntegration:
         fills_received = []
         cancelled = []
 
-        simulator.on_fill(lambda fill: fills_received.append(fill))
-        simulator.on_cancel(lambda order, reason: cancelled.append((order, reason)))
+        simulator.on_fill(lambda _trade, fill: fills_received.append(fill))
+        simulator.on_cancel(lambda trade: cancelled.append(trade))
 
         # Submit orders
         market_order = MarketOrder(action='BUY', totalQuantity=100)
         limit_order = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('110'), tif='DAY')
 
         simulator.submit_order(market_order)
-        simulator.submit_order(limit_order)
+        limit_trade = simulator.submit_order(limit_order)
 
         # Day 1: Market fills, limit pending
         bar1 = BarData(
@@ -983,7 +1003,7 @@ class TestIntegration:
 
         fills1 = simulator.process_bar(bar1)
         assert len(fills1) == 1  # Market order filled
-        assert len(simulator.get_active_orders()) == 1  # Limit still pending
+        assert len(simulator.get_active_trades()) == 1  # Limit still pending
 
         # Day 2: Limit expires due to DAY TIF
         bar2 = BarData(
@@ -997,14 +1017,14 @@ class TestIntegration:
 
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 0  # Limit expired before execution
-        assert len(simulator.get_active_orders()) == 0
+        assert len(simulator.get_active_trades()) == 0
         assert len(cancelled) == 1
-        assert cancelled[0][1] == "DAY order expired"
+        assert limit_trade.log[-1].message == 'DAY order expired'
 
     def test_stop_order_with_gtd(self, simulator):
         """Stop order with GTD expiration."""
         cancelled = []
-        simulator.on_cancel(lambda order, reason: cancelled.append((order, reason)))
+        simulator.on_cancel(lambda trade: cancelled.append(trade))
 
         # Stop order GTD until Jan 16
         order = StopOrder(
@@ -1014,7 +1034,7 @@ class TestIntegration:
             tif='GTD',
             goodTillDate='20240116'
         )
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
         # Day 1: Stop not triggered (low=95 > stop=90)
         bar1 = BarData(
@@ -1026,7 +1046,7 @@ class TestIntegration:
             volume=1000
         )
         simulator.process_bar(bar1)
-        assert simulator.get_order(order.orderId) is not None
+        assert simulator.get_trade(order.orderId) is not None
 
         # Day 2: Still active
         bar2 = BarData(
@@ -1038,7 +1058,7 @@ class TestIntegration:
             volume=1000
         )
         simulator.process_bar(bar2)
-        assert simulator.get_order(order.orderId) is not None
+        assert simulator.get_trade(order.orderId) is not None
 
         # Day 3: Expires
         bar3 = BarData(
@@ -1050,8 +1070,9 @@ class TestIntegration:
             volume=1000
         )
         simulator.process_bar(bar3)
-        assert simulator.get_order(order.orderId) is None
+        assert simulator.get_trade(order.orderId) is None
         assert len(cancelled) == 1
+        assert trade.orderStatus.status == 'Cancelled'
 
     def test_cancel_then_submit_new(self, simulator, bar_day1):
         """Cancel order and submit new one."""
@@ -1059,15 +1080,15 @@ class TestIntegration:
         simulator.submit_order(order1)
 
         simulator.cancel_order(order1.orderId)
-        assert len(simulator.get_active_orders()) == 0
+        assert len(simulator.get_active_trades()) == 0
 
         order2 = MarketOrder(action='BUY', totalQuantity=100)
         simulator.submit_order(order2)
 
         fills = simulator.process_bar(bar_day1)
         assert len(fills) == 1
-        assert simulator.get_order(order1.orderId) is None
-        assert simulator.get_order(order2.orderId) is None  # Filled and removed
+        assert simulator.get_trade(order1.orderId) is None
+        assert simulator.get_trade(order2.orderId) is None  # Filled and removed
 
 
 # endregion
@@ -1085,17 +1106,17 @@ class TestOCOOrders:
         order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
         order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
 
-        simulator.submit_order(order1)
-        simulator.submit_order(order2)
+        trade1 = simulator.submit_order(order1)
+        trade2 = simulator.submit_order(order2)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 1
         assert fills[0].order.orderId == order1.orderId
-        assert simulator.get_order(order1.orderId) is None
-        assert simulator.get_order(order2.orderId) is None  # Cancelled by OCO
-        assert order1.status == 'FILLED'
-        assert order2.status == 'CANCELLED'
+        assert simulator.get_trade(order1.orderId) is None
+        assert simulator.get_trade(order2.orderId) is None  # Cancelled by OCO
+        assert trade1.orderStatus.status == 'Filled'
+        assert trade2.orderStatus.status == 'Cancelled'
 
     def test_oco_closest_to_open_fills_first(self, simulator):
         """When multiple OCO orders could fill, closest to open wins."""
@@ -1114,16 +1135,16 @@ class TestOCOOrders:
         order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
         order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('98'), ocaGroup='bracket_1')
 
-        simulator.submit_order(order1)
-        simulator.submit_order(order2)
+        trade1 = simulator.submit_order(order1)
+        trade2 = simulator.submit_order(order2)
 
         fills = simulator.process_bar(bar)
 
         assert len(fills) == 1
         # Order2 (price=98) is closer to open=100, should fill
         assert fills[0].order.orderId == order2.orderId
-        assert order2.status == 'FILLED'
-        assert order1.status == 'CANCELLED'
+        assert trade2.orderStatus.status == 'Filled'
+        assert trade1.orderStatus.status == 'Cancelled'
 
     def test_oco_no_fill_both_remain(self, simulator, bar_day1):
         """When neither OCO order fills, both remain active."""
@@ -1132,23 +1153,23 @@ class TestOCOOrders:
         order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
         order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')
 
-        simulator.submit_order(order1)
-        simulator.submit_order(order2)
+        trade1 = simulator.submit_order(order1)
+        trade2 = simulator.submit_order(order2)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 0
-        assert simulator.get_order(order1.orderId) is order1
-        assert simulator.get_order(order2.orderId) is order2
-        assert order1.status == 'PENDING'
-        assert order2.status == 'PENDING'
+        assert simulator.get_trade(order1.orderId) is trade1
+        assert simulator.get_trade(order2.orderId) is trade2
+        assert trade1.orderStatus.status == 'Submitted'
+        assert trade2.orderStatus.status == 'Submitted'
 
     def test_oco_cancel_invokes_callback(self, simulator, bar_day1):
-        """Cancelled OCO sibling triggers on_cancel with reason."""
+        """Cancelled OCO sibling triggers on_cancel."""
         cancelled = []
 
-        def on_cancel(order, reason):
-            cancelled.append((order, reason))
+        def on_cancel(trade):
+            cancelled.append(trade)
 
         simulator.on_cancel(on_cancel)
 
@@ -1156,13 +1177,13 @@ class TestOCOOrders:
         order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
 
         simulator.submit_order(order1)
-        simulator.submit_order(order2)
+        trade2 = simulator.submit_order(order2)
 
         simulator.process_bar(bar_day1)
 
         assert len(cancelled) == 1
-        assert cancelled[0][0] is order2
-        assert f"OCO: order {order1.orderId} filled" in cancelled[0][1]
+        assert cancelled[0] is trade2
+        assert f"OCO: order {order1.orderId} filled" in trade2.log[-1].message
 
     def test_oco_three_orders_one_fills(self, simulator, bar_day1):
         """OCO group with 3 orders - one fill cancels two."""
@@ -1171,18 +1192,18 @@ class TestOCOOrders:
         order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')  # Cancelled
         order3 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')  # Cancelled
 
-        simulator.submit_order(order1)
-        simulator.submit_order(order2)
-        simulator.submit_order(order3)
+        trade1 = simulator.submit_order(order1)
+        trade2 = simulator.submit_order(order2)
+        trade3 = simulator.submit_order(order3)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 1
         assert fills[0].order.orderId == order1.orderId
-        assert len(simulator.get_active_orders()) == 0
-        assert order1.status == 'FILLED'
-        assert order2.status == 'CANCELLED'
-        assert order3.status == 'CANCELLED'
+        assert len(simulator.get_active_trades()) == 0
+        assert trade1.orderStatus.status == 'Filled'
+        assert trade2.orderStatus.status == 'Cancelled'
+        assert trade3.orderStatus.status == 'Cancelled'
 
     def test_oco_mixed_order_types(self, simulator):
         """OCO with LimitOrder + StopOrder."""
@@ -1201,39 +1222,39 @@ class TestOCOOrders:
         limit_order = LimitOrder(action='SELL', totalQuantity=100, price=Decimal('104'), ocaGroup='exit_bracket')
         stop_order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('96'), ocaGroup='exit_bracket')
 
-        simulator.submit_order(limit_order)
-        simulator.submit_order(stop_order)
+        limit_trade = simulator.submit_order(limit_order)
+        stop_trade = simulator.submit_order(stop_order)
 
         fills = simulator.process_bar(bar)
 
         # Limit should fill (closer to open at 100 vs stop at 96)
         assert len(fills) == 1
         assert fills[0].order.orderId == limit_order.orderId
-        assert limit_order.status == 'FILLED'
-        assert stop_order.status == 'CANCELLED'
-        assert simulator.get_order(stop_order.orderId) is None
+        assert limit_trade.orderStatus.status == 'Filled'
+        assert stop_trade.orderStatus.status == 'Cancelled'
+        assert simulator.get_trade(stop_order.orderId) is None
 
     def test_oco_order_status_after_user_cancel(self, simulator):
-        """Order status is set to CANCELLED when user cancels."""
+        """Trade status is set to Cancelled when user cancels."""
         order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
-        assert order.status == 'PENDING'
+        assert trade.orderStatus.status == 'Submitted'
 
         simulator.cancel_order(order.orderId)
 
-        assert order.status == 'CANCELLED'
+        assert trade.orderStatus.status == 'Cancelled'
 
     def test_oco_order_status_after_fill(self, simulator, bar_day1):
-        """Order status is set to FILLED when order fills."""
+        """Trade status is set to Filled when order fills."""
         order = MarketOrder(action='BUY', totalQuantity=100)
-        simulator.submit_order(order)
+        trade = simulator.submit_order(order)
 
-        assert order.status == 'PENDING'
+        assert trade.orderStatus.status == 'Submitted'
 
         simulator.process_bar(bar_day1)
 
-        assert order.status == 'FILLED'
+        assert trade.orderStatus.status == 'Filled'
 
     def test_oco_independent_groups(self, simulator, bar_day1):
         """Orders in different OCA groups don't affect each other."""
@@ -1245,18 +1266,18 @@ class TestOCOOrders:
         order2a = MarketOrder(action='SELL', totalQuantity=50, ocaGroup='group_2')  # Fills
         order2b = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('120'), ocaGroup='group_2')  # Cancelled
 
-        simulator.submit_order(order1a)
-        simulator.submit_order(order1b)
-        simulator.submit_order(order2a)
-        simulator.submit_order(order2b)
+        trade1a = simulator.submit_order(order1a)
+        trade1b = simulator.submit_order(order1b)
+        trade2a = simulator.submit_order(order2a)
+        trade2b = simulator.submit_order(order2b)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 2  # Both groups had a fill
-        assert order1a.status == 'FILLED'
-        assert order1b.status == 'CANCELLED'
-        assert order2a.status == 'FILLED'
-        assert order2b.status == 'CANCELLED'
+        assert trade1a.orderStatus.status == 'Filled'
+        assert trade1b.orderStatus.status == 'Cancelled'
+        assert trade2a.orderStatus.status == 'Filled'
+        assert trade2b.orderStatus.status == 'Cancelled'
 
     def test_oco_fills_on_second_bar(self, simulator, bar_day1, bar_day2):
         """OCO orders pending on first bar, one fills on second bar."""
@@ -1267,8 +1288,8 @@ class TestOCOOrders:
         order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
         order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')
 
-        simulator.submit_order(order1)
-        simulator.submit_order(order2)
+        trade1 = simulator.submit_order(order1)
+        trade2 = simulator.submit_order(order2)
 
         fills1 = simulator.process_bar(bar_day1)
         assert len(fills1) == 0
@@ -1279,8 +1300,8 @@ class TestOCOOrders:
         fills2 = simulator.process_bar(bar_day2)
         assert len(fills2) == 1
         assert fills2[0].order.orderId == order1.orderId
-        assert order1.status == 'FILLED'
-        assert order2.status == 'CANCELLED'
+        assert trade1.orderStatus.status == 'Filled'
+        assert trade2.orderStatus.status == 'Cancelled'
 
 
 # endregion
