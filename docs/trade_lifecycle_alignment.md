@@ -67,10 +67,10 @@ Without a common `Trade` object, the EventBus abstraction in ShadowTrader must t
 class OrderStatus:
     orderId: int = 0
     status: str = 'PendingSubmit'
-    filled: Decimal = Decimal('0')
-    remaining: Decimal = Decimal('0')
-    avgFillPrice: Decimal = Decimal('0')
-    lastFillPrice: Decimal = Decimal('0')
+    filled: float = 0.0
+    remaining: float = 0.0
+    avgFillPrice: float = 0.0
+    lastFillPrice: float = 0.0
     parentId: int = 0
 
     PendingSubmit = 'PendingSubmit'

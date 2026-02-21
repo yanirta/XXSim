@@ -56,38 +56,36 @@ pip install XXSim
 For direct single-bar execution using the low-level engine:
 ```python
 from XXSim import ExecutionEngine, MarketOrder, BarData
-from decimal import Decimal
 from datetime import datetime
 
 engine = ExecutionEngine()
 bar = BarData(
     date=datetime(2025, 1, 1, 9, 30),
-    open=Decimal('100.00'),
-    high=Decimal('105.00'),
-    low=Decimal('95.00'),
-    close=Decimal('102.00'),
+    open=100.00,
+    high=105.00,
+    low=95.00,
+    close=102.00,
     volume=1000000,
 )
 order = MarketOrder(action='BUY', totalQuantity=100)
-result = engine.execute(order, bar)
-print(result.fills)
+fills = engine.execute(order, bar)
+print(fills)
 ```
 
 ### Multi-Bar Simulation
 For backtesting across multiple bars with order lifecycle management:
 ```python
 from XXSim import Simulator, MarketOrder, LimitOrder, BarData
-from decimal import Decimal
 
 sim = Simulator()
 
 # Register callbacks
-sim.on_fill(lambda fill: print(f"Filled: {fill.execution.price}"))
-sim.on_cancel(lambda order, reason: print(f"Cancelled: {reason}"))
+sim.on_fill(lambda trade, fill: print(f"Filled: {fill.execution.price}"))
+sim.on_cancel(lambda trade: print(f"Cancelled: {trade.log[-1].message}"))
 
 # Submit orders
 sim.submit_order(MarketOrder(action='BUY', totalQuantity=100))
-sim.submit_order(LimitOrder(action='SELL', totalQuantity=100, price=Decimal('110')))
+sim.submit_order(LimitOrder(action='SELL', totalQuantity=100, price=110.0))
 
 # Process bars
 for bar in historical_bars:

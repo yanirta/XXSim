@@ -21,7 +21,7 @@ XSim is an **OHLCV-based execution simulator** for backtesting trading strategie
 - When user asks questions about "how we do things," check if the answer should be documented here.
 
 ## Technical Constraints
-1.  **Data Types**: Use `decimal.Decimal` or `int` for financial values. Never use `float`.
+1.  **Data Types**: Use `float` for all financial values. No `Decimal` types.
 2.  **Type Hinting**: Use standard library `typing`.
 3.  **Testing**: Use `pytest`. Tests should be simple and readable. Use `@pytest.mark.xfail` for planned features not yet implemented.
 4.  **Core Logic Purity**: Core functions must NOT perform input validation. Assume inputs are valid. Validation belongs in the external gateway/wrapper layer.

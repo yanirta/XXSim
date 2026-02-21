@@ -119,13 +119,13 @@ class ExecutionEngine:
 ```python
 class TrailingStopMarket(Order):
     orderType: str = "TRAIL"
-    trailAmount: Decimal  # Fixed dollar amount to trail
-    currentStopPrice: Decimal = UNSET_DECIMAL  # Mutable state
-    extremePrice: Decimal = UNSET_DECIMAL  # Tracks high (SELL) or low (BUY)
+    trailAmount: float  # Fixed dollar amount to trail
+    currentStopPrice: float = UNSET_DOUBLE  # Mutable state
+    extremePrice: float = UNSET_DOUBLE  # Tracks high (SELL) or low (BUY)
 
 def _execute_order(order: TrailingStopMarket, bar: BarData) -> Optional[Fill]:
     # 1. Initialize on first bar
-    if order.currentStopPrice == UNSET_DECIMAL:
+    if order.currentStopPrice == UNSET_DOUBLE:
         order.currentStopPrice = bar.open - order.trailAmount if order.action == "BUY" \
                                   else bar.open + order.trailAmount
         order.extremePrice = bar.open
@@ -173,7 +173,7 @@ def _execute_order(order: TrailingStopMarket, bar: BarData) -> Optional[Fill]:
     return None  # Returned in pending_orders by ExecutionResult
 
 # Caller usage
-trailing = TrailingStopMarket(action="SELL", totalQuantity=100, trailAmount=Decimal("5"))
+trailing = TrailingStopMarket(action="SELL", totalQuantity=100, trailAmount=5.0)
 
 for bar in bars:
     result = engine.execute(trailing, bar)
@@ -192,10 +192,10 @@ for bar in bars:
 ```python
 class TrailingStopLimit(Order):
     orderType: str = "TRAIL LMT"
-    trailAmount: Decimal
-    limitOffset: Decimal  # Distance from trigger to limit price
-    currentStopPrice: Decimal = UNSET_DECIMAL
-    extremePrice: Decimal = UNSET_DECIMAL
+    trailAmount: float
+    limitOffset: float  # Distance from trigger to limit price
+    currentStopPrice: float = UNSET_DOUBLE
+    extremePrice: float = UNSET_DOUBLE
 
 # When triggered, creates LimitOrder child:
 if triggered:
