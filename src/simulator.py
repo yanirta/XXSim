@@ -2,13 +2,13 @@
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry
 from execEngine import ExecutionEngine
+from event_emitter import EventEmitter
 
 
 @dataclass
@@ -39,11 +39,7 @@ class Simulator:
         self._oca_groups: dict[str, set[int]] = {}  # ocaGroup -> {orderId, ...}
         self._last_bar_date: Optional[date] = None
 
-        # Callbacks
-        self._on_fill_callbacks: list[Callable[[Trade, Fill], None]] = []
-        self._on_cancel_callbacks: list[Callable[[Trade], None]] = []
-        self._on_status_callbacks: list[Callable[[Trade], None]] = []
-        self._on_bar_callbacks: list[Callable[[BarData, list[Fill]], None]] = []
+        self._events = EventEmitter()
 
     # region Order Management
 
@@ -59,12 +55,16 @@ class Simulator:
         Returns:
             The Trade object wrapping this order
         """
+        # In simulation, permId mirrors orderId (in live IB assigns it)
+        if order.permId == 0:
+            order.permId = order.orderId
+
         trade = Trade(
             order=order,
             orderStatus=OrderStatus(
                 orderId=order.orderId,
                 status='Submitted',
-                remaining=Decimal(str(order.totalQuantity)),
+                remaining=order.totalQuantity,
             ),
             log=[TradeLogEntry(
                 time=datetime.now(),
@@ -79,7 +79,7 @@ class Simulator:
             self._oca_groups[order.ocaGroup].add(order.orderId)
 
         self._active_trades[order.orderId] = trade
-        self._invoke_status_callbacks(trade)
+        self._events.emit('status', trade)
         return trade
 
     def cancel_order(self, order_id: int) -> bool:
@@ -99,8 +99,8 @@ class Simulator:
                 status='Cancelled',
                 message='User cancelled',
             ))
-            self._invoke_cancel_callbacks(trade)
-            self._invoke_status_callbacks(trade)
+            self._events.emit('cancel', trade)
+            self._events.emit('status', trade)
             return True
         return False
 
@@ -126,7 +126,7 @@ class Simulator:
             if key in allowed_fields and hasattr(order, key):
                 setattr(order, key, value)
 
-        self._invoke_status_callbacks(trade)
+        self._events.emit('status', trade)
         return True
 
     # endregion
@@ -160,15 +160,19 @@ class Simulator:
         """Process a bar against all active orders.
 
         Algorithm:
-        1. Expire DAY orders if date changed
-        2. Expire GTD orders past goodTillDate
-        3. Sort orders by distance to bar.open (for OCO priority)
-        4. For each active trade (skipping OCO-cancelled, skipping GAT not yet active):
+        1. Expire GTD orders past goodTillDate
+        2. Sort orders by distance to bar.open (for OCO priority)
+        3. For each active trade (skipping OCO-cancelled, skipping GAT not yet active):
            a. Execute order via ExecutionEngine
            b. If filled: update trade status, cancel OCO siblings, invoke on_fill,
               submit unfilled bracket children as new trades
            c. If not filled: keep (state already mutated in-place by engine)
+        4. After matching, expire unfilled DAY orders if date changed
         5. Return all fills
+
+        DAY expiration runs after matching so that orders submitted between
+        bars get one bar attempt before expiring. This matches real-world
+        behavior where a DAY order placed at open has the full session to fill.
 
         Args:
             bar: Bar data to process
@@ -177,24 +181,21 @@ class Simulator:
             List of all fills from this bar
         """
         current_date = bar.date.date() if isinstance(bar.date, datetime) else bar.date
+        date_changed = self._last_bar_date is not None and current_date != self._last_bar_date
 
-        # 1. Expire DAY orders if date changed
-        if self._last_bar_date is not None and current_date != self._last_bar_date:
-            self._expire_day_orders()
-
-        # 2. Expire GTD orders past goodTillDate
+        # 1. Expire GTD orders past goodTillDate
         self._expire_gtd_orders(current_date)
 
         # Update last bar date
         self._last_bar_date = current_date
 
-        # 3. Sort trades by distance to open price for OCO priority
+        # 2. Sort trades by distance to open price for OCO priority
         trades_to_process = sorted(
             self._active_trades.items(),
             key=lambda x: self._distance_to_open(x[1].order, bar)
         )
 
-        # 4. Process each active trade
+        # 3. Process each active trade
         all_fills: list[Fill] = []
         trades_to_add: list[Trade] = []
 
@@ -210,22 +211,62 @@ class Simulator:
             fills = self._engine.execute(trade.order, bar)
 
             if fills:
+                # Separate parent fills from child fills
+                parent_fills = [f for f in fills if f.execution.orderId == order_id]
+                child_fills = [f for f in fills if f.execution.orderId != order_id]
+
                 self._active_trades.pop(order_id, None)
-                self._update_trade_filled(trade, fills, bar.date)
-                all_fills.extend(fills)
-                for fill in fills:
-                    self._invoke_fill_callbacks(trade, fill)
+                self._update_trade_filled(trade, parent_fills, bar.date)
+                all_fills.extend(parent_fills)
+                for fill in parent_fills:
+                    self._events.emit('fill', trade, fill)
                 self._cancel_oca_siblings(trade)
-                # Submit unfilled bracket children as new trades
-                filled_order_ids = {f.execution.orderId for f in fills}
+
+                # Create trades for children (filled or unfilled)
+                # Apply OCA: if one child filled, cancel siblings in same group
+                child_fills_by_id = {}
+                for f in child_fills:
+                    child_fills_by_id.setdefault(f.execution.orderId, []).append(f)
+
+                # Pre-compute which OCA groups have a child fill
+                # Pick the first filled child per group (closest to open)
+                oca_winner: dict[str, int] = {}  # ocaGroup -> winning orderId
                 for child in trade.order.children:
-                    if child.orderId not in filled_order_ids:
+                    if child.ocaGroup and child.orderId in child_fills_by_id:
+                        if child.ocaGroup not in oca_winner:
+                            oca_winner[child.ocaGroup] = child.orderId
+
+                for child in trade.order.children:
+                    if child.permId == 0:
+                        child.permId = child.orderId
+
+                    # Cancel if OCA sibling is the winner (not this child)
+                    if child.ocaGroup and child.ocaGroup in oca_winner and oca_winner[child.ocaGroup] != child.orderId:
                         child_trade = Trade(
                             order=child,
                             orderStatus=OrderStatus(
                                 orderId=child.orderId,
-                                status='Submitted',
-                                remaining=Decimal(child.totalQuantity),
+                                status='Cancelled',
+                                remaining=0.0,
+                            ),
+                            log=[TradeLogEntry(
+                                time=bar.date,
+                                status='Cancelled',
+                                message=f'OCO: sibling filled on same bar',
+                            )],
+                        )
+                        self._events.emit('cancel', child_trade)
+                        self._events.emit('status', child_trade)
+                        continue
+
+                    cf = child_fills_by_id.get(child.orderId)
+                    if cf:
+                        child_trade = Trade(
+                            order=child,
+                            orderStatus=OrderStatus(
+                                orderId=child.orderId,
+                                status='Filled',
+                                remaining=0.0,
                             ),
                             log=[TradeLogEntry(
                                 time=bar.date,
@@ -233,7 +274,43 @@ class Simulator:
                                 message=f'Child of order {order_id}',
                             )],
                         )
-                        trades_to_add.append(child_trade)
+                        self._update_trade_filled(child_trade, cf, bar.date)
+                        all_fills.extend(cf)
+                        for fill in cf:
+                            self._events.emit('fill', child_trade, fill)
+                    else:
+                        # Unfilled child — but if OCA sibling already filled, cancel
+                        if child.ocaGroup and child.ocaGroup in oca_winner:
+                            child_trade = Trade(
+                                order=child,
+                                orderStatus=OrderStatus(
+                                    orderId=child.orderId,
+                                    status='Cancelled',
+                                    remaining=0.0,
+                                ),
+                                log=[TradeLogEntry(
+                                    time=bar.date,
+                                    status='Cancelled',
+                                    message=f'OCO: sibling filled on same bar',
+                                )],
+                            )
+                            self._events.emit('cancel', child_trade)
+                            self._events.emit('status', child_trade)
+                        else:
+                            child_trade = Trade(
+                                order=child,
+                                orderStatus=OrderStatus(
+                                    orderId=child.orderId,
+                                    status='Submitted',
+                                    remaining=child.totalQuantity,
+                                ),
+                                log=[TradeLogEntry(
+                                    time=bar.date,
+                                    status='Submitted',
+                                    message=f'Child of order {order_id}',
+                                )],
+                            )
+                            trades_to_add.append(child_trade)
 
             # else: PENDING — keep trade (state already mutated in-place by engine)
 
@@ -241,36 +318,40 @@ class Simulator:
         for child_trade in trades_to_add:
             self._active_trades[child_trade.order.orderId] = child_trade
 
+        # 4. Expire unfilled DAY orders after matching
+        if date_changed:
+            self._expire_day_orders()
+
         # Invoke on_bar callbacks
-        self._invoke_bar_callbacks(bar, all_fills)
+        self._events.emit('bar', bar, all_fills)
 
         return all_fills
 
     def _update_trade_filled(self, trade: Trade, fills: list[Fill], time: datetime) -> None:
         """Update trade status to Filled with fill details."""
-        total_filled = Decimal(sum(f.execution.shares for f in fills))
-        avg_price = sum(Decimal(str(f.execution.shares)) * f.execution.price for f in fills) / total_filled if total_filled > 0 else Decimal('0')
+        total_filled = sum(f.execution.shares for f in fills)
+        avg_price = sum(f.execution.shares * f.execution.price for f in fills) / total_filled if total_filled > 0 else 0.0
 
         trade.orderStatus.status = 'Filled'
-        trade.orderStatus.filled = Decimal(str(total_filled))
-        trade.orderStatus.remaining = Decimal('0')
+        trade.orderStatus.filled = total_filled
+        trade.orderStatus.remaining = 0.0
         trade.orderStatus.avgFillPrice = avg_price
-        trade.orderStatus.lastFillPrice = fills[-1].execution.price if fills else Decimal('0')
+        trade.orderStatus.lastFillPrice = fills[-1].execution.price if fills else 0.0
         trade.fills.extend(fills)
         trade.log.append(TradeLogEntry(
             time=time,
             status='Filled',
             message=f'Filled {total_filled} @ {avg_price}',
         ))
-        self._invoke_status_callbacks(trade)
+        self._events.emit('status', trade)
 
-    def _distance_to_open(self, order: Order, bar: BarData) -> Decimal:
+    def _distance_to_open(self, order: Order, bar: BarData) -> float:
         """Calculate distance from order's trigger price to bar.open.
 
         Used to determine OCO priority - order closest to open fills first.
         """
         if order.orderType == 'MKT':
-            return Decimal('0')
+            return 0.0
         price = order.price or bar.open
         return abs(price - bar.open)
 
@@ -304,8 +385,8 @@ class Simulator:
                     status='Cancelled',
                     message=f'OCO: order {order.orderId} filled',
                 ))
-                self._invoke_cancel_callbacks(sibling_trade)
-                self._invoke_status_callbacks(sibling_trade)
+                self._events.emit('cancel', sibling_trade)
+                self._events.emit('status', sibling_trade)
         # Clean up the group
         self._oca_groups.pop(order.ocaGroup, None)
 
@@ -337,8 +418,8 @@ class Simulator:
                 status='Cancelled',
                 message='DAY order expired',
             ))
-            self._invoke_cancel_callbacks(trade)
-            self._invoke_status_callbacks(trade)
+            self._events.emit('cancel', trade)
+            self._events.emit('status', trade)
 
     def _expire_gtd_orders(self, current_date: date) -> None:
         """Expire GTD orders past their goodTillDate."""
@@ -362,8 +443,8 @@ class Simulator:
                 status='Cancelled',
                 message='GTD order expired',
             ))
-            self._invoke_cancel_callbacks(trade)
-            self._invoke_status_callbacks(trade)
+            self._events.emit('cancel', trade)
+            self._events.emit('status', trade)
 
     # endregion
 
@@ -375,7 +456,7 @@ class Simulator:
         Args:
             callback: Function called with (Trade, Fill) when order is filled
         """
-        self._on_fill_callbacks.append(callback)
+        self._events.on('fill', callback)
 
     def on_cancel(self, callback: Callable[[Trade], None]) -> None:
         """Register a callback for cancel events.
@@ -384,7 +465,7 @@ class Simulator:
             callback: Function called with Trade when order is cancelled.
                       Cancel reason is in trade.log[-1].message.
         """
-        self._on_cancel_callbacks.append(callback)
+        self._events.on('cancel', callback)
 
     def on_status(self, callback: Callable[[Trade], None]) -> None:
         """Register a callback for any status change events.
@@ -392,7 +473,7 @@ class Simulator:
         Args:
             callback: Function called with Trade on any status change
         """
-        self._on_status_callbacks.append(callback)
+        self._events.on('status', callback)
 
     def on_bar(self, callback: Callable[[BarData, list[Fill]], None]) -> None:
         """Register a callback for bar processing events.
@@ -402,38 +483,6 @@ class Simulator:
         Args:
             callback: Function called with (BarData, list[Fill]) after each bar
         """
-        self._on_bar_callbacks.append(callback)
-
-    def _invoke_fill_callbacks(self, trade: Trade, fill: Fill) -> None:
-        """Invoke all registered fill callbacks."""
-        for callback in self._on_fill_callbacks:
-            try:
-                callback(trade, fill)
-            except Exception:
-                logger.exception("Error in fill callback %s", callback.__name__)
-
-    def _invoke_cancel_callbacks(self, trade: Trade) -> None:
-        """Invoke all registered cancel callbacks."""
-        for callback in self._on_cancel_callbacks:
-            try:
-                callback(trade)
-            except Exception:
-                logger.exception("Error in cancel callback %s", callback.__name__)
-
-    def _invoke_status_callbacks(self, trade: Trade) -> None:
-        """Invoke all registered status callbacks."""
-        for callback in self._on_status_callbacks:
-            try:
-                callback(trade)
-            except Exception:
-                logger.exception("Error in status callback %s", callback.__name__)
-
-    def _invoke_bar_callbacks(self, bar: BarData, fills: list[Fill]) -> None:
-        """Invoke all registered bar callbacks."""
-        for callback in self._on_bar_callbacks:
-            try:
-                callback(bar, fills)
-            except Exception:
-                logger.exception("Error in bar callback %s", callback.__name__)
+        self._events.on('bar', callback)
 
     # endregion

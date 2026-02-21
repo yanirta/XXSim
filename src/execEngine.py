@@ -1,6 +1,5 @@
 """Order execution engine for OHLCV-based backtesting."""
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Optional, Literal
 
 from xtrading_models import Order, Fill, Execution, CommissionReport, BarData
@@ -75,7 +74,7 @@ class ExecutionEngine:
             raise NotImplementedError("Trailing Stop Limit execution not implemented")
         return None
 
-    def _create_modified_bar(self, original: BarData, new_open: Decimal) -> BarData:
+    def _create_modified_bar(self, original: BarData, new_open: float) -> BarData:
         """Create modified bar with adjusted open price (aggressive approach).
 
         Only open is modified - we don't know if bar extremes happened before/after trigger.
@@ -109,7 +108,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=Decimal("0.00"),
+            commission=0.0,
             currency="USD",
         )
 
@@ -122,7 +121,7 @@ class ExecutionEngine:
 
         return [fill]
 
-    def _evaluate_limit_price(self, action: str, limit_price: Decimal, bar: BarData) -> Optional[Decimal]:
+    def _evaluate_limit_price(self, action: str, limit_price: float, bar: BarData) -> Optional[float]:
         """Evaluate if a limit price would fill against a bar.
 
         Returns fill price if limit is reached, None otherwise.
@@ -151,7 +150,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=Decimal("0.00"),
+            commission=0.0,
             currency="USD",
         )
 
@@ -194,7 +193,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=Decimal("0.00"),
+            commission=0.0,
             currency="USD",
         )
 
@@ -252,7 +251,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=Decimal("0.00"),
+            commission=0.0,
             currency="USD",
         )
 
@@ -285,17 +284,11 @@ class ExecutionEngine:
         # Evaluate each fragment in order for trigger
         for price in fragments:
             if order.action == 'BUY':
-                # Initialize on first fragment
-                if order.stopPrice is None:
+                # Update extreme and stop prices on motion down or initialization
+                if order.stopPrice is None or price <= order.extremePrice:  # type: ignore
                     order.extremePrice = price
                     order.stopPrice = order.extremePrice + order.trailingDistance if order.trailingDistance is not None else \
-                        order.extremePrice * (1 + order.trailingPercent / 100)  # type: ignore
-
-                # Update extreme and stop prices on motion down
-                if price <= order.extremePrice:  # type: ignore
-                    order.extremePrice = price
-                    order.stopPrice = order.extremePrice + order.trailingDistance if order.trailingDistance is not None else \
-                        order.extremePrice * (1 + order.trailingPercent / 100)  # type: ignore
+                        order.extremePrice + order.trailingPercent / 100  # type: ignore
                 # Check for trigger on motion up
                 elif price >= order.stopPrice:
                     # Triggered
@@ -303,16 +296,11 @@ class ExecutionEngine:
                     break
 
             elif order.action == 'SELL':
-                # Initialize on first fragment
-                if order.stopPrice is None:
+                # Update extreme and stop prices on motion up or initialization
+                if order.stopPrice is None or price >= order.extremePrice:  # type: ignore
                     order.extremePrice = price
                     order.stopPrice = order.extremePrice - order.trailingDistance if order.trailingDistance is not None else \
-                        order.extremePrice * (1 - order.trailingPercent / 100)  # type: ignore
-                # Update extreme and stop prices on motion up
-                if price >= order.extremePrice:  # type: ignore
-                    order.extremePrice = price
-                    order.stopPrice = order.extremePrice - order.trailingDistance if order.trailingDistance is not None else \
-                        order.extremePrice * (1 - order.trailingPercent / 100)  # type: ignore
+                        order.extremePrice - order.trailingPercent / 100  # type: ignore
                 # Check for trigger on motion down
                 elif price <= order.stopPrice:
                     # Triggered
@@ -334,7 +322,7 @@ class ExecutionEngine:
             )
 
             commission = CommissionReport(
-                commission=Decimal("0.00"),
+                commission=0.0,
                 currency="USD",
             )
 

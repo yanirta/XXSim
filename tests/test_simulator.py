@@ -1,7 +1,6 @@
 """Tests for Simulator class."""
 import pytest
 from datetime import datetime
-from decimal import Decimal
 
 from xtrading_models import (
     BarData,
@@ -28,10 +27,10 @@ def bar_day1():
     """Bar for day 1: 2024-01-15."""
     return BarData(
         date=datetime(2024, 1, 15, 9, 30),
-        open=Decimal('100'),
-        high=Decimal('105'),
-        low=Decimal('95'),
-        close=Decimal('102'),
+        open=100.0,
+        high=105.0,
+        low=95.0,
+        close=102.0,
         volume=1000
     )
 
@@ -41,10 +40,10 @@ def bar_day2():
     """Bar for day 2: 2024-01-16."""
     return BarData(
         date=datetime(2024, 1, 16, 9, 30),
-        open=Decimal('102'),
-        high=Decimal('110'),
-        low=Decimal('100'),
-        close=Decimal('108'),
+        open=102.0,
+        high=110.0,
+        low=100.0,
+        close=108.0,
         volume=1200
     )
 
@@ -54,10 +53,10 @@ def bar_day3():
     """Bar for day 3: 2024-01-17."""
     return BarData(
         date=datetime(2024, 1, 17, 9, 30),
-        open=Decimal('108'),
-        high=Decimal('115'),
-        low=Decimal('106'),
-        close=Decimal('112'),
+        open=108.0,
+        high=115.0,
+        low=106.0,
+        close=112.0,
         volume=1500
     )
 
@@ -88,7 +87,7 @@ class TestOrderSubmission:
     def test_submit_multiple_orders(self, simulator):
         """Multiple orders can be submitted and tracked."""
         order1 = MarketOrder(action='BUY', totalQuantity=100)
-        order2 = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('150'))
+        order2 = LimitOrder(action='SELL', totalQuantity=50, price=150.0)
 
         trade1 = simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -162,27 +161,27 @@ class TestBarProcessing:
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 1
-        assert fills[0].execution.price == Decimal('100')  # Open price
+        assert fills[0].execution.price == 100.0  # Open price
         assert simulator.get_trade(order.orderId) is None  # Removed
         assert trade.orderStatus.status == 'Filled'
 
     def test_limit_order_fills_when_price_reached(self, simulator, bar_day1):
         """Limit order fills when price reaches limit."""
         # Buy limit at 96, bar low is 95 - should fill
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=96.0)
         trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
 
         assert len(fills) == 1
-        assert fills[0].execution.price == Decimal('96')
+        assert fills[0].execution.price == 96.0
         assert simulator.get_trade(order.orderId) is None
         assert trade.orderStatus.status == 'Filled'
 
     def test_limit_order_stays_pending_when_price_not_reached(self, simulator, bar_day1):
         """Limit order stays pending when price not reached."""
         # Buy limit at 90, bar low is 95 - should not fill
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=90.0)
         trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
@@ -193,7 +192,7 @@ class TestBarProcessing:
     def test_multi_bar_fill(self, simulator, bar_day1, bar_day2):
         """Order fills across multiple bars."""
         # Buy limit at 90, bar1 low is 95, bar2 low is 100 - never fills
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=90.0)
         trade = simulator.submit_order(order)
 
         fills1 = simulator.process_bar(bar_day1)
@@ -208,10 +207,10 @@ class TestBarProcessing:
     def test_limit_order_fills_on_second_bar(self, simulator):
         """Limit order pending on first bar fills on second bar."""
         # Buy limit at 94, bar1 low is 95 (no fill), bar2 low is 93 (fills)
-        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('105'), low=Decimal('95'), close=Decimal('102'), volume=1000)
-        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('96'), high=Decimal('98'), low=Decimal('93'), close=Decimal('95'), volume=1000)
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=100.0, high=105.0, low=95.0, close=102.0, volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=96.0, high=98.0, low=93.0, close=95.0, volume=1000)
 
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('94'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=94.0)
         trade = simulator.submit_order(order)
 
         fills1 = simulator.process_bar(bar1)
@@ -220,7 +219,7 @@ class TestBarProcessing:
 
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 1  # Filled on second bar
-        assert fills2[0].execution.price == Decimal('94')
+        assert fills2[0].execution.price == 94.0
         assert simulator.get_trade(order.orderId) is None  # Removed from active
         assert trade.orderStatus.status == 'Filled'
 
@@ -229,10 +228,10 @@ class TestBarProcessing:
         # Buy stop-limit: stop at 102, limit at 101
         # Bar1: high=105 triggers stop, but low=102 doesn't reach limit 101 → triggered=True, pending
         # Bar2: low=100 reaches limit 101 → fills
-        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('103'), high=Decimal('105'), low=Decimal('102'), close=Decimal('104'), volume=1000)
-        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('103'), high=Decimal('104'), low=Decimal('100'), close=Decimal('102'), volume=1000)
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=103.0, high=105.0, low=102.0, close=104.0, volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=103.0, high=104.0, low=100.0, close=102.0, volume=1000)
 
-        order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=Decimal('102'), limitPrice=Decimal('101'))
+        order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=102.0, limitPrice=101.0)
         trade = simulator.submit_order(order)
 
         # Bar 1: Stop triggers (internal state change), limit not reached
@@ -246,7 +245,7 @@ class TestBarProcessing:
         # Bar 2: Limit fills (order already triggered, evaluates as limit)
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 1
-        assert fills2[0].execution.price == Decimal('101')
+        assert fills2[0].execution.price == 101.0
         assert len(simulator.get_active_trades()) == 0
         assert trade.orderStatus.status == 'Filled'
 
@@ -256,33 +255,33 @@ class TestBarProcessing:
         # Bar1: high=102 sets extreme=102, stop=97, low=99 > 97 (no trigger)
         # Bar2: high=110 updates extreme=110, stop=105, low=106 > 105 (no trigger)
         # Bar3: low=103 < stop=105 (triggers and fills)
-        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('102'), low=Decimal('99'), close=Decimal('101'), volume=1000)
-        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('107'), high=Decimal('110'), low=Decimal('106'), close=Decimal('109'), volume=1000)
-        bar3 = BarData(date=datetime(2025, 1, 1, 9, 32), open=Decimal('108'), high=Decimal('109'), low=Decimal('103'), close=Decimal('104'), volume=1000)
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=100.0, high=102.0, low=99.0, close=101.0, volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=107.0, high=110.0, low=106.0, close=109.0, volume=1000)
+        bar3 = BarData(date=datetime(2025, 1, 1, 9, 32), open=108.0, high=109.0, low=103.0, close=104.0, volume=1000)
 
         order = TrailingStopMarket(
             action='SELL',
             totalQuantity=100,
-            trailingDistance=Decimal('5')
+            trailingDistance=5.0
         )
         trade = simulator.submit_order(order)
 
         # Bar 1: Initialize extreme and stop
         fills1 = simulator.process_bar(bar1)
         assert len(fills1) == 0
-        assert order.extremePrice == Decimal('102')
-        assert order.stopPrice == Decimal('97')
+        assert order.extremePrice == 102.0
+        assert order.stopPrice == 97.0
 
         # Bar 2: Price goes up, stop trails up
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 0
-        assert order.extremePrice == Decimal('110')
-        assert order.stopPrice == Decimal('105')
+        assert order.extremePrice == 110.0
+        assert order.stopPrice == 105.0
 
         # Bar 3: Price drops below stop, triggers
         fills3 = simulator.process_bar(bar3)
         assert len(fills3) == 1
-        assert fills3[0].execution.price == Decimal('105')  # Fills at stop price
+        assert fills3[0].execution.price == 105.0  # Fills at stop price
         assert len(simulator.get_active_trades()) == 0
         assert trade.orderStatus.status == 'Filled'
 
@@ -290,10 +289,10 @@ class TestBarProcessing:
         """Stop order pending on bar1, triggers on bar2."""
         # Bar1: low=98 doesn't reach stop=97
         # Bar2: low=95 triggers stop=97
-        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('102'), low=Decimal('98'), close=Decimal('101'), volume=1000)
-        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('99'), high=Decimal('100'), low=Decimal('95'), close=Decimal('96'), volume=1000)
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=100.0, high=102.0, low=98.0, close=101.0, volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=99.0, high=100.0, low=95.0, close=96.0, volume=1000)
 
-        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('97'))
+        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=97.0)
         trade = simulator.submit_order(order)
 
         # Bar 1: Stop not triggered
@@ -304,7 +303,7 @@ class TestBarProcessing:
         # Bar 2: Stop triggers and fills
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 1
-        assert fills2[0].execution.price == Decimal('97')  # Fills at stop price
+        assert fills2[0].execution.price == 97.0  # Fills at stop price
         assert len(simulator.get_active_trades()) == 0
         assert trade.orderStatus.status == 'Filled'
 
@@ -313,12 +312,12 @@ class TestBarProcessing:
         # Bar1: stop triggers but limit not reached → triggered=True, stays pending
         # Bar2-3: limit still not reached
         # Bar4: limit finally fills
-        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('103'), high=Decimal('105'), low=Decimal('102'), close=Decimal('104'), volume=1000)
-        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('104'), high=Decimal('106'), low=Decimal('103'), close=Decimal('105'), volume=1000)
-        bar3 = BarData(date=datetime(2025, 1, 1, 9, 32), open=Decimal('105'), high=Decimal('107'), low=Decimal('104'), close=Decimal('106'), volume=1000)
-        bar4 = BarData(date=datetime(2025, 1, 1, 9, 33), open=Decimal('102'), high=Decimal('103'), low=Decimal('99'), close=Decimal('100'), volume=1000)
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=103.0, high=105.0, low=102.0, close=104.0, volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=104.0, high=106.0, low=103.0, close=105.0, volume=1000)
+        bar3 = BarData(date=datetime(2025, 1, 1, 9, 32), open=105.0, high=107.0, low=104.0, close=106.0, volume=1000)
+        bar4 = BarData(date=datetime(2025, 1, 1, 9, 33), open=102.0, high=103.0, low=99.0, close=100.0, volume=1000)
 
-        order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=Decimal('102'), limitPrice=Decimal('100'))
+        order = StopLimitOrder(action='BUY', totalQuantity=100, stopPrice=102.0, limitPrice=100.0)
         trade = simulator.submit_order(order)
 
         # Bar 1: Stop triggers (internal state change), limit not reached
@@ -343,19 +342,19 @@ class TestBarProcessing:
         # Bar 4: Limit fills (low=99 < 100)
         fills4 = simulator.process_bar(bar4)
         assert len(fills4) == 1
-        assert fills4[0].execution.price == Decimal('100')
+        assert fills4[0].execution.price == 100.0
         assert len(simulator.get_active_trades()) == 0
         assert trade.orderStatus.status == 'Filled'
 
     def test_multiple_parent_orders_trigger_on_different_bars(self, simulator):
         """Two stop orders submitted together, triggering on different bars."""
-        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=Decimal('100'), high=Decimal('102'), low=Decimal('98'), close=Decimal('101'), volume=1000)
-        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=Decimal('99'), high=Decimal('100'), low=Decimal('94'), close=Decimal('95'), volume=1000)
+        bar1 = BarData(date=datetime(2025, 1, 1, 9, 30), open=100.0, high=102.0, low=98.0, close=101.0, volume=1000)
+        bar2 = BarData(date=datetime(2025, 1, 1, 9, 31), open=99.0, high=100.0, low=94.0, close=95.0, volume=1000)
 
         # Stop1 at 99 triggers on bar1 (low=98)
         # Stop2 at 95 triggers on bar2 (low=94)
-        stop1 = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('99'))
-        stop2 = StopOrder(action='SELL', totalQuantity=50, stopPrice=Decimal('95'))
+        stop1 = StopOrder(action='SELL', totalQuantity=100, stopPrice=99.0)
+        stop2 = StopOrder(action='SELL', totalQuantity=50, stopPrice=95.0)
 
         trade1 = simulator.submit_order(stop1)
         trade2 = simulator.submit_order(stop2)
@@ -379,7 +378,7 @@ class TestBarProcessing:
     def test_stop_order_triggers_and_fills(self, simulator, bar_day1):
         """Stop order triggers and fills."""
         # Sell stop at 97, bar low is 95 - should trigger and fill
-        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('97'))
+        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=97.0)
         trade = simulator.submit_order(order)
 
         fills = simulator.process_bar(bar_day1)
@@ -395,7 +394,7 @@ class TestBarProcessing:
         order = TrailingStopMarket(
             action='BUY',
             totalQuantity=100,
-            trailingDistance=Decimal('5')
+            trailingDistance=5.0
         )
         simulator.submit_order(order)
 
@@ -421,6 +420,74 @@ class TestBarProcessing:
         assert len(fills) == 2
         assert len(simulator.get_active_trades()) == 0
 
+    def test_oca_children_only_one_fills_on_same_bar(self, simulator):
+        """When both OCA bracket children could fill on the same bar,
+        only the first one fills; the sibling is OCA-cancelled."""
+        # Wide bar where both SL and TP could fill
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0,
+            high=115.0,
+            low=85.0,
+            close=105.0,
+            volume=1000
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0, ocaGroup='bracket_1')
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=108.0, ocaGroup='bracket_1')
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        simulator.submit_order(entry)
+
+        fill_events = []
+        cancel_events = []
+        simulator.on_fill(lambda t, f: fill_events.append((t, f)))
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        fills = simulator.process_bar(bar)
+
+        # Entry fill + one child fill only (not both)
+        entry_fills = [f for f in fills if f.execution.orderId == entry.orderId]
+        child_fills = [f for f in fills if f.execution.orderId != entry.orderId]
+        assert len(entry_fills) == 1
+        assert len(child_fills) == 1
+
+        # One child cancelled by OCA
+        assert len(cancel_events) == 1
+        assert cancel_events[0].orderStatus.status == 'Cancelled'
+
+    def test_oca_children_unfilled_sibling_cancelled_when_other_fills(self, simulator):
+        """When one OCA child fills on same bar as parent and the other
+        doesn't fill, the unfilled sibling should NOT become an active trade."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        # SL won't fill (low=95 > 90... wait, modified bar low = min(98, 95) = 95, stop at 90 won't trigger)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0, ocaGroup='bracket_1')
+        # TP will fill (high=110 >= 108)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=108.0, ocaGroup='bracket_1')
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        simulator.submit_order(entry)
+        fills = simulator.process_bar(bar)
+
+        # TP filled, SL should be cancelled (not active)
+        assert simulator.get_trade(stop_loss.orderId) is None
+        assert simulator.get_trade(take_profit.orderId) is None
+        assert len(simulator.get_active_trades()) == 0
+
 
 # endregion
 
@@ -431,7 +498,7 @@ class TestTIFExpiration:
 
     def test_gtc_never_expires(self, simulator, bar_day1, bar_day2, bar_day3):
         """GTC orders never expire on date change."""
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'), tif='GTC')
+        order = LimitOrder(action='BUY', totalQuantity=100, price=50.0, tif='GTC')
         trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)
@@ -443,7 +510,7 @@ class TestTIFExpiration:
 
     def test_day_order_expires_on_date_change(self, simulator, bar_day1, bar_day2):
         """DAY orders expire when date changes."""
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'), tif='DAY')
+        order = LimitOrder(action='BUY', totalQuantity=100, price=50.0, tif='DAY')
         trade = simulator.submit_order(order)
 
         fills1 = simulator.process_bar(bar_day1)
@@ -464,7 +531,7 @@ class TestTIFExpiration:
 
         simulator.on_cancel(on_cancel)
 
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'), tif='DAY')
+        order = LimitOrder(action='BUY', totalQuantity=100, price=50.0, tif='DAY')
         trade = simulator.submit_order(order)
 
         simulator.process_bar(bar_day1)
@@ -480,7 +547,7 @@ class TestTIFExpiration:
         order = LimitOrder(
             action='BUY',
             totalQuantity=100,
-            price=Decimal('50'),
+            price=50.0,
             tif='GTD',
             goodTillDate='20240116'  # YYYYMMDD format
         )
@@ -508,7 +575,7 @@ class TestTIFExpiration:
         order = LimitOrder(
             action='BUY',
             totalQuantity=100,
-            price=Decimal('50'),
+            price=50.0,
             tif='GTD',
             goodTillDate='20240116'
         )
@@ -524,7 +591,7 @@ class TestTIFExpiration:
 
     def test_default_tif_is_empty_string(self, simulator, bar_day1, bar_day2, bar_day3):
         """Orders with empty TIF don't expire (treated like GTC)."""
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=50.0)
         # Default tif is empty string
         assert order.tif == ''
 
@@ -544,10 +611,10 @@ class TestTIFExpiration:
         # Bar at 9:30, order active after 10:00
         bar = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
@@ -568,10 +635,10 @@ class TestTIFExpiration:
         # Bar at 10:30, order active after 10:00
         bar = BarData(
             date=datetime(2024, 1, 15, 10, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
@@ -592,10 +659,10 @@ class TestTIFExpiration:
         # Bar at exactly 10:00, order active after 10:00
         bar = BarData(
             date=datetime(2024, 1, 15, 10, 0),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
@@ -614,18 +681,18 @@ class TestTIFExpiration:
         """Order pending on bar1, becomes active and fills on bar2."""
         bar1 = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
         bar2 = BarData(
             date=datetime(2024, 1, 15, 10, 30),
-            open=Decimal('102'),
-            high=Decimal('108'),
-            low=Decimal('100'),
-            close=Decimal('106'),
+            open=102.0,
+            high=108.0,
+            low=100.0,
+            close=106.0,
             volume=1200
         )
 
@@ -670,10 +737,10 @@ class TestTIFExpiration:
         """Limit order with GAT not reached stays pending."""
         bar = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
@@ -681,7 +748,7 @@ class TestTIFExpiration:
         order = LimitOrder(
             action='BUY',
             totalQuantity=100,
-            price=Decimal('96'),
+            price=96.0,
             goodAfterTime='20240115 10:00:00'
         )
         trade = simulator.submit_order(order)
@@ -695,26 +762,26 @@ class TestTIFExpiration:
         """Order with both goodAfterTime and goodTillDate."""
         bar1 = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
         bar2 = BarData(
             date=datetime(2024, 1, 15, 10, 30),
-            open=Decimal('102'),
-            high=Decimal('108'),
-            low=Decimal('100'),
-            close=Decimal('106'),
+            open=102.0,
+            high=108.0,
+            low=100.0,
+            close=106.0,
             volume=1200
         )
         bar3 = BarData(
             date=datetime(2024, 1, 17, 9, 30),
-            open=Decimal('106'),
-            high=Decimal('110'),
-            low=Decimal('90'),  # Would hit limit
-            close=Decimal('108'),
+            open=106.0,
+            high=110.0,
+            low=90.0,  # Would hit limit
+            close=108.0,
             volume=1500
         )
 
@@ -722,7 +789,7 @@ class TestTIFExpiration:
         order = LimitOrder(
             action='BUY',
             totalQuantity=100,
-            price=Decimal('92'),  # Won't fill on bar1/bar2
+            price=92.0,  # Won't fill on bar1/bar2
             tif='GTD',
             goodTillDate='20240116',
             goodAfterTime='20240115 10:00:00'
@@ -777,7 +844,7 @@ class TestCallbacks:
 
         assert len(fills_received) == 1
         assert fills_received[0][0] is trade
-        assert fills_received[0][1].execution.price == Decimal('100')
+        assert fills_received[0][1].execution.price == 100.0
 
     def test_multiple_fill_callbacks(self, simulator, bar_day1):
         """Multiple on_fill callbacks are all invoked."""
@@ -812,9 +879,9 @@ class TestCallbacks:
 
         simulator.on_status(lambda trade: statuses.append(trade))
 
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('100'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
         trade = simulator.submit_order(order)
-        simulator.update_order(order.orderId, price=Decimal('95'))
+        simulator.update_order(order.orderId, price=95.0)
 
         # Status called on submit + update
         assert len(statuses) >= 2
@@ -830,13 +897,13 @@ class TestOrderUpdates:
 
     def test_update_order_price(self, simulator):
         """Update order price."""
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('100'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
         simulator.submit_order(order)
 
-        result = simulator.update_order(order.orderId, price=Decimal('95'))
+        result = simulator.update_order(order.orderId, price=95.0)
 
         assert result is True
-        assert order.price == Decimal('95')
+        assert order.price == 95.0
 
     def test_update_order_quantity(self, simulator):
         """Update order quantity."""
@@ -853,18 +920,18 @@ class TestOrderUpdates:
         order = TrailingStopMarket(
             action='BUY',
             totalQuantity=100,
-            trailingDistance=Decimal('5')
+            trailingDistance=5.0
         )
         simulator.submit_order(order)
 
-        result = simulator.update_order(order.orderId, trailingDistance=Decimal('10'))
+        result = simulator.update_order(order.orderId, trailingDistance=10.0)
 
         assert result is True
-        assert order.trailingDistance == Decimal('10')
+        assert order.trailingDistance == 10.0
 
     def test_update_nonexistent_order_returns_false(self, simulator):
         """Update returns False for non-existent order."""
-        result = simulator.update_order(99999, price=Decimal('100'))
+        result = simulator.update_order(99999, price=100.0)
         assert result is False
 
     def test_update_triggers_callback(self, simulator):
@@ -872,9 +939,9 @@ class TestOrderUpdates:
         statuses = []
         simulator.on_status(lambda trade: statuses.append(trade))
 
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('100'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
         simulator.submit_order(order)
-        simulator.update_order(order.orderId, price=Decimal('95'))
+        simulator.update_order(order.orderId, price=95.0)
 
         # At least 2 status callbacks: submit + update
         assert len(statuses) >= 2
@@ -957,10 +1024,10 @@ class TestOnBarCallback:
         simulator.on_bar(strategy)
 
         bars = [
-            BarData(date=datetime(2024, 1, 15, 9, 30), open=Decimal('100'),
-                    high=Decimal('105'), low=Decimal('95'), close=Decimal('102'), volume=1000),
-            BarData(date=datetime(2024, 1, 15, 10, 0), open=Decimal('102'),
-                    high=Decimal('107'), low=Decimal('100'), close=Decimal('105'), volume=1000),
+            BarData(date=datetime(2024, 1, 15, 9, 30), open=100.0,
+                    high=105.0, low=95.0, close=102.0, volume=1000),
+            BarData(date=datetime(2024, 1, 15, 10, 0), open=102.0,
+                    high=107.0, low=100.0, close=105.0, volume=1000),
         ]
 
         simulator.run(bars)
@@ -986,7 +1053,7 @@ class TestIntegration:
 
         # Submit orders
         market_order = MarketOrder(action='BUY', totalQuantity=100)
-        limit_order = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('110'), tif='DAY')
+        limit_order = LimitOrder(action='SELL', totalQuantity=50, price=110.0, tif='DAY')
 
         simulator.submit_order(market_order)
         limit_trade = simulator.submit_order(limit_order)
@@ -994,10 +1061,10 @@ class TestIntegration:
         # Day 1: Market fills, limit pending
         bar1 = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
@@ -1008,10 +1075,10 @@ class TestIntegration:
         # Day 2: Limit expires due to DAY TIF
         bar2 = BarData(
             date=datetime(2024, 1, 16, 9, 30),
-            open=Decimal('102'),
-            high=Decimal('108'),
-            low=Decimal('100'),
-            close=Decimal('106'),
+            open=102.0,
+            high=108.0,
+            low=100.0,
+            close=106.0,
             volume=1200
         )
 
@@ -1030,7 +1097,7 @@ class TestIntegration:
         order = StopOrder(
             action='SELL',
             totalQuantity=100,
-            stopPrice=Decimal('90'),
+            stopPrice=90.0,
             tif='GTD',
             goodTillDate='20240116'
         )
@@ -1039,10 +1106,10 @@ class TestIntegration:
         # Day 1: Stop not triggered (low=95 > stop=90)
         bar1 = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
         simulator.process_bar(bar1)
@@ -1051,10 +1118,10 @@ class TestIntegration:
         # Day 2: Still active
         bar2 = BarData(
             date=datetime(2024, 1, 16, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
         simulator.process_bar(bar2)
@@ -1063,10 +1130,10 @@ class TestIntegration:
         # Day 3: Expires
         bar3 = BarData(
             date=datetime(2024, 1, 17, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
         simulator.process_bar(bar3)
@@ -1076,7 +1143,7 @@ class TestIntegration:
 
     def test_cancel_then_submit_new(self, simulator, bar_day1):
         """Cancel order and submit new one."""
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('50'))
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=50.0)
         simulator.submit_order(order1)
 
         simulator.cancel_order(order1.orderId)
@@ -1093,6 +1160,109 @@ class TestIntegration:
 
 # endregion
 
+# region Bracket Order Tests
+
+class TestBracketOrders:
+    """Tests for parent orders with bracket children (entry + stop_loss + take_profit)."""
+
+    def test_parent_fill_does_not_include_child_fills(self, simulator):
+        """When parent fills and a child also fills on the same bar,
+        the parent trade's fills and orderStatus should only reflect
+        the parent's own fill — not the child's."""
+        # Bar: open=100, high=110, low=95, close=105
+        # Entry: BUY limit at 98 → fills at 98 (low=95 reaches it)
+        # Modified bar for children: open=98, high=110, low=95
+        # Take-profit: SELL limit at 108 → fills (high=110 >= 108)
+        # Stop-loss: SELL stop at 93 → does NOT fill (low=95 > 93)
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=93.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=108.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        trade = simulator.submit_order(entry)
+        fills = simulator.process_bar(bar)
+
+        # Parent trade should only report its own fill quantity
+        assert trade.orderStatus.filled == 100.0
+        assert len(trade.fills) == 1
+        assert trade.fills[0].execution.orderId == entry.orderId
+
+    def test_child_filled_on_same_bar_gets_own_trade(self, simulator):
+        """When a child fills recursively on the same bar as the parent,
+        the child should get its own Trade with correct fill info."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=93.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=108.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        trade = simulator.submit_order(entry)
+
+        fill_events = []
+        simulator.on_fill(lambda t, f: fill_events.append((t, f)))
+
+        fills = simulator.process_bar(bar)
+
+        # Take-profit fills on the same bar (high=110 >= 108)
+        # It should NOT remain as an active trade
+        assert simulator.get_trade(take_profit.orderId) is None
+
+        # The take-profit fill should be emitted as a separate fill event
+        tp_fills = [f for t, f in fill_events if f.execution.orderId == take_profit.orderId]
+        assert len(tp_fills) == 1
+        assert tp_fills[0].execution.shares == 100
+
+    def test_unfilled_child_becomes_active_trade(self, simulator):
+        """When parent fills but a child does NOT fill on the same bar,
+        the child should be submitted as a new active trade."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=93.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=115.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        simulator.submit_order(entry)
+        simulator.process_bar(bar)
+
+        # Entry filled, neither child fills on this bar
+        # Both children should be active trades
+        assert simulator.get_trade(stop_loss.orderId) is not None
+        assert simulator.get_trade(take_profit.orderId) is not None
+
+
+# endregion
+
 # region OCO Tests
 
 class TestOCOOrders:
@@ -1103,8 +1273,8 @@ class TestOCOOrders:
         # Bar: open=100, high=105, low=95
         # Buy limit at 96 will fill (low=95 < 96)
         # Buy limit at 90 will not be reached but should be cancelled
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
-        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='bracket_1')
 
         trade1 = simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -1125,15 +1295,15 @@ class TestOCOOrders:
         # Order at 98 is closer to open=100, should fill first
         bar = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
-        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('98'), ocaGroup='bracket_1')
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=98.0, ocaGroup='bracket_1')
 
         trade1 = simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -1150,8 +1320,8 @@ class TestOCOOrders:
         """When neither OCO order fills, both remain active."""
         # Bar: open=100, high=105, low=95
         # Both limits at 90 and 85 won't fill (low=95 > both)
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
-        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=85.0, ocaGroup='bracket_1')
 
         trade1 = simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -1173,8 +1343,8 @@ class TestOCOOrders:
 
         simulator.on_cancel(on_cancel)
 
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')
-        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='bracket_1')
 
         simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -1188,9 +1358,9 @@ class TestOCOOrders:
     def test_oco_three_orders_one_fills(self, simulator, bar_day1):
         """OCO group with 3 orders - one fill cancels two."""
         # Bar: open=100, high=105, low=95
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='bracket_1')  # Fills
-        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')  # Cancelled
-        order3 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')  # Cancelled
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='bracket_1')  # Fills
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='bracket_1')  # Cancelled
+        order3 = LimitOrder(action='BUY', totalQuantity=100, price=85.0, ocaGroup='bracket_1')  # Cancelled
 
         trade1 = simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -1212,15 +1382,15 @@ class TestOCOOrders:
         # Stop at 96 should be cancelled
         bar = BarData(
             date=datetime(2024, 1, 15, 9, 30),
-            open=Decimal('100'),
-            high=Decimal('105'),
-            low=Decimal('95'),
-            close=Decimal('102'),
+            open=100.0,
+            high=105.0,
+            low=95.0,
+            close=102.0,
             volume=1000
         )
 
-        limit_order = LimitOrder(action='SELL', totalQuantity=100, price=Decimal('104'), ocaGroup='exit_bracket')
-        stop_order = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('96'), ocaGroup='exit_bracket')
+        limit_order = LimitOrder(action='SELL', totalQuantity=100, price=104.0, ocaGroup='exit_bracket')
+        stop_order = StopOrder(action='SELL', totalQuantity=100, stopPrice=96.0, ocaGroup='exit_bracket')
 
         limit_trade = simulator.submit_order(limit_order)
         stop_trade = simulator.submit_order(stop_order)
@@ -1236,7 +1406,7 @@ class TestOCOOrders:
 
     def test_oco_order_status_after_user_cancel(self, simulator):
         """Trade status is set to Cancelled when user cancels."""
-        order = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'))
+        order = LimitOrder(action='BUY', totalQuantity=100, price=90.0)
         trade = simulator.submit_order(order)
 
         assert trade.orderStatus.status == 'Submitted'
@@ -1259,12 +1429,12 @@ class TestOCOOrders:
     def test_oco_independent_groups(self, simulator, bar_day1):
         """Orders in different OCA groups don't affect each other."""
         # Group 1
-        order1a = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('96'), ocaGroup='group_1')  # Fills
-        order1b = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='group_1')  # Cancelled
+        order1a = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='group_1')  # Fills
+        order1b = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='group_1')  # Cancelled
 
         # Group 2 - independent
         order2a = MarketOrder(action='SELL', totalQuantity=50, ocaGroup='group_2')  # Fills
-        order2b = LimitOrder(action='SELL', totalQuantity=50, price=Decimal('120'), ocaGroup='group_2')  # Cancelled
+        order2b = LimitOrder(action='SELL', totalQuantity=50, price=120.0, ocaGroup='group_2')  # Cancelled
 
         trade1a = simulator.submit_order(order1a)
         trade1b = simulator.submit_order(order1b)
@@ -1285,8 +1455,8 @@ class TestOCOOrders:
         # Bar2: open=102, high=110, low=100
         # Both limits at 90 and 85 won't fill on bar1
         # After bar1, change order1 price to 101 (will fill on bar2)
-        order1 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('90'), ocaGroup='bracket_1')
-        order2 = LimitOrder(action='BUY', totalQuantity=100, price=Decimal('85'), ocaGroup='bracket_1')
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='bracket_1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=85.0, ocaGroup='bracket_1')
 
         trade1 = simulator.submit_order(order1)
         trade2 = simulator.submit_order(order2)
@@ -1295,7 +1465,7 @@ class TestOCOOrders:
         assert len(fills1) == 0
 
         # Update order1 to fill on bar2
-        simulator.update_order(order1.orderId, price=Decimal('101'))
+        simulator.update_order(order1.orderId, price=101.0)
 
         fills2 = simulator.process_bar(bar_day2)
         assert len(fills2) == 1

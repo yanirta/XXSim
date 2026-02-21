@@ -7,7 +7,6 @@ These tests verify the trailing stop mechanism:
 4. Child MarketOrder execution when triggered
 5. Both fixed distance and percentage modes
 """
-from decimal import Decimal
 from datetime import datetime
 import pytest
 import csv
@@ -41,13 +40,13 @@ def load_formations(csv_file):
             # Convert numeric fields
             formation = {
                 'Formation': row['Formation'],
-                'Open': Decimal(row['Open']),
-                'High': Decimal(row['High']),
-                'Low': Decimal(row['Low']),
-                'Close': Decimal(row['Close']),
-                'TrailingDistance': Decimal(row['TrailingDistance']) if row['TrailingDistance'] else None,
-                'TrailingPercent': Decimal(row['TrailingPercent']) if row['TrailingPercent'] else None,
-                'CarriedExtremePrice': Decimal(row['CarriedExtremePrice']) if row['CarriedExtremePrice'] else None,
+                'Open': float(row['Open']),
+                'High': float(row['High']),
+                'Low': float(row['Low']),
+                'Close': float(row['Close']),
+                'TrailingDistance': float(row['TrailingDistance']) if row['TrailingDistance'] else None,
+                'TrailingPercent': float(row['TrailingPercent']) if row['TrailingPercent'] else None,
+                'CarriedExtremePrice': float(row['CarriedExtremePrice']) if row['CarriedExtremePrice'] else None,
                 'StopFill': row['StopFill'],
                 'OrderFill': row['OrderFill'],
             }
@@ -83,7 +82,7 @@ def test_buy_trailing_stop_market_execution(engine, formation):
         if formation['TrailingDistance']:
             order.stopPrice = formation['CarriedExtremePrice'] + formation['TrailingDistance']
         else:
-            order.stopPrice = formation['CarriedExtremePrice'] * (Decimal('1') + formation['TrailingPercent'] / Decimal('100'))
+            order.stopPrice = formation['CarriedExtremePrice'] * (1.0 + formation['TrailingPercent'] / 100.0)
     fills = engine.execute(order, bar)
     expected_fill = formation['OrderFill']
     if expected_fill == 'No Fill':
@@ -91,10 +90,10 @@ def test_buy_trailing_stop_market_execution(engine, formation):
         assert order.extremePrice is not None
         assert order.stopPrice is not None
     else:
-        expected_price = Decimal(expected_fill)
+        expected_price = float(expected_fill)
         assert len(fills) == 1
         fill = fills[0]
-        assert fill.execution.price == expected_price
+        assert fill.execution.price == pytest.approx(expected_price)
         assert fill.execution.shares == 100
         assert fill.order.orderType == 'TRAIL'
 
@@ -120,7 +119,7 @@ def test_sell_trailing_stop_market_execution(engine, formation):
         if formation['TrailingDistance']:
             order.stopPrice = formation['CarriedExtremePrice'] - formation['TrailingDistance']
         else:
-            order.stopPrice = formation['CarriedExtremePrice'] * (Decimal('1') - formation['TrailingPercent'] / Decimal('100'))
+            order.stopPrice = formation['CarriedExtremePrice'] * (1.0 - formation['TrailingPercent'] / 100.0)
     fills = engine.execute(order, bar)
     expected_fill = formation['OrderFill']
     if expected_fill == 'No Fill':
@@ -128,10 +127,10 @@ def test_sell_trailing_stop_market_execution(engine, formation):
         assert order.extremePrice is not None
         assert order.stopPrice is not None
     else:
-        expected_price = Decimal(expected_fill)
+        expected_price = float(expected_fill)
         assert len(fills) == 1
         fill = fills[0]
-        assert fill.execution.price == expected_price
+        assert fill.execution.price == pytest.approx(expected_price)
         assert fill.execution.shares == 100
         assert fill.order.orderType == 'TRAIL'
 
@@ -142,15 +141,15 @@ def test_trailing_stop_market_state_initialization(engine):
     order = TrailingStopMarket(
         action='BUY',
         totalQuantity=100,
-        trailingDistance=Decimal('10.00')
+        trailingDistance=10.0
     )
     
     bar = BarData(
         date=datetime(2025, 1, 1, 9, 30),
-        open=Decimal('100.00'),
-        high=Decimal('105.00'),
-        low=Decimal('95.00'),
-        close=Decimal('102.00'),
+        open=100.0,
+        high=105.0,
+        low=95.0,
+        close=102.0,
         volume=1000000,
     )
     
@@ -162,6 +161,6 @@ def test_trailing_stop_market_state_initialization(engine):
 
     # After execution, verify state initialization (mutated in-place)
     if not fills:
-        assert order.extremePrice == Decimal('95.00')  # bar.low for BUY
-        assert order.stopPrice == Decimal('105.00')  # extremePrice + distance
+        assert order.extremePrice == 95.0  # bar.low for BUY
+        assert order.stopPrice == 105.0  # extremePrice + distance
 

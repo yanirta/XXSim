@@ -1,5 +1,4 @@
 """Tests for ExecutionEngine order execution."""
-from decimal import Decimal
 from datetime import datetime
 import pytest
 
@@ -12,10 +11,10 @@ def bullish_bar():
     """Standard bullish bar for testing."""
     return BarData(
         date=datetime(2025, 1, 1, 9, 30),
-        open=Decimal('148.00'),
-        high=Decimal('152.00'),
-        low=Decimal('146.00'),
-        close=Decimal('150.00'),
+        open=148.0,
+        high=152.0,
+        low=146.0,
+        close=150.0,
         volume=1000000
     )
 
@@ -34,7 +33,7 @@ def test_market_order_fills_at_open(engine, bullish_bar):
     fills = engine.execute(order, bullish_bar)
 
     assert len(fills) == 1
-    assert fills[0].execution.price == Decimal('148.00')  # open
+    assert fills[0].execution.price == 148.0  # open
 
 # endregion
 
@@ -43,16 +42,16 @@ def test_market_order_fills_at_open(engine, bullish_bar):
 
 def test_limit_buy_fills_when_low_touches(engine, bullish_bar):
     """Buy limit should fill when low touches limit price."""
-    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("147.00"))
+    order = LimitOrder(action="BUY", totalQuantity=100, price=147.0)
     fills = engine.execute(order, bullish_bar)
 
     assert len(fills) == 1
-    assert fills[0].execution.price == Decimal('147.00')  # limit
+    assert fills[0].execution.price == 147.0  # limit
 
 
 def test_limit_buy_no_fill_when_low_above(engine, bullish_bar):
     """Buy limit should not fill when low stays above limit."""
-    order = LimitOrder(action="BUY", totalQuantity=100, price=Decimal("145.00"))
+    order = LimitOrder(action="BUY", totalQuantity=100, price=145.0)
     fills = engine.execute(order, bullish_bar)
 
     assert len(fills) == 0
@@ -64,16 +63,16 @@ def test_limit_buy_no_fill_when_low_above(engine, bullish_bar):
 
 def test_stop_buy_fills_when_high_touches(engine, bullish_bar):
     """Buy stop should trigger and fill when high touches stop."""
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("151.00"))
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=151.0)
     fills = engine.execute(order, bullish_bar)
 
     assert len(fills) == 1
-    assert fills[0].execution.price == Decimal('151.00')
+    assert fills[0].execution.price == 151.0
 
 
 def test_stop_buy_no_trigger_when_high_below(engine, bullish_bar):
     """Buy stop should not trigger when high stays below stop."""
-    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=Decimal("153.00"))
+    order = StopOrder(action="BUY", totalQuantity=100, stopPrice=153.0)
     fills = engine.execute(order, bullish_bar)
 
     assert len(fills) == 0
@@ -89,13 +88,13 @@ def test_stop_limit_both_fill(engine, bullish_bar):
     order = StopLimitOrder(
         action="BUY",
         totalQuantity=100,
-        stopPrice=Decimal("151.00"),
-        limitPrice=Decimal("149.00")
+        stopPrice=151.0,
+        limitPrice=149.0
     )
     fills = engine.execute(order, bullish_bar)
 
     assert len(fills) == 1
-    assert fills[0].execution.price == Decimal("149.00")
+    assert fills[0].execution.price == 149.0
 
 
 def test_stop_limit_triggered_but_not_filled(engine, bullish_bar):
@@ -104,8 +103,8 @@ def test_stop_limit_triggered_but_not_filled(engine, bullish_bar):
     order = StopLimitOrder(
         action="BUY",
         totalQuantity=100,
-        stopPrice=Decimal("151.00"),  # Triggers
-        limitPrice=Decimal("145.00")   # Below bar low, won't fill
+        stopPrice=151.0,  # Triggers
+        limitPrice=145.0   # Below bar low, won't fill
     )
     fills = engine.execute(order, bullish_bar)
 
@@ -119,8 +118,8 @@ def test_stop_limit_stop_only(engine, bullish_bar):
     order = StopLimitOrder(
         action="BUY",
         totalQuantity=100,
-        stopPrice=Decimal("151.00"),
-        limitPrice=Decimal("145.00")
+        stopPrice=151.0,
+        limitPrice=145.0
     )
     fills = engine.execute(order, bullish_bar)
 
@@ -133,8 +132,8 @@ def test_stop_limit_no_trigger(engine, bullish_bar):
     order = StopLimitOrder(
         action="BUY",
         totalQuantity=100,
-        stopPrice=Decimal("153.00"),
-        limitPrice=Decimal("156.00")
+        stopPrice=153.0,
+        limitPrice=156.0
     )
     fills = engine.execute(order, bullish_bar)
 

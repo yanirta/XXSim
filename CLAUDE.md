@@ -72,8 +72,8 @@ fills = sim.process_bar(bar)  # Process bar, returns fills
 **OCO (One-Cancels-Other) Orders:**
 ```python
 # Set ocaGroup on orders to link them
-take_profit = LimitOrder(action='SELL', totalQuantity=100, price=Decimal('110'), ocaGroup='exit_bracket')
-stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=Decimal('90'), ocaGroup='exit_bracket')
+take_profit = LimitOrder(action='SELL', totalQuantity=100, price=110.0, ocaGroup='exit_bracket')
+stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0, ocaGroup='exit_bracket')
 
 sim.submit_order(take_profit)
 sim.submit_order(stop_loss)
@@ -88,7 +88,7 @@ sim.submit_order(stop_loss)
 order = LimitOrder(
     action='BUY',
     totalQuantity=100,
-    price=Decimal('95'),
+    price=95.0,
     goodAfterTime='20240115 10:00:00'  # Format: YYYYMMDD HH:MM:SS
 )
 sim.submit_order(order)
@@ -98,11 +98,13 @@ sim.submit_order(order)
 ```
 
 Bar processing algorithm:
-1. Expire DAY orders if date changed
-2. Expire GTD orders past goodTillDate
-3. Skip orders where goodAfterTime hasn't been reached
-4. Execute each active order via ExecutionEngine
-5. Handle FILLED (remove, update Trade status, submit bracket children as new trades), PENDING (keep)
+1. Expire GTD orders past goodTillDate
+2. Sort active orders by distance to bar.open (OCO priority)
+3. For each active order (skip if OCO-cancelled, skip if GAT not yet active):
+   a. Execute via ExecutionEngine
+   b. If filled: update Trade status, cancel OCO siblings, submit bracket children as new trades
+   c. If not filled: keep (state already mutated in-place by engine)
+4. Expire unfilled DAY orders if date changed (after matching, so orders get one bar attempt)
 
 ib_insync-style usage with `on_bar` and `run()`:
 ```python
@@ -126,7 +128,7 @@ Each CSV defines OHLC values, stop/limit prices, and expected fill outcomes.
 ## Code Conventions
 
 ### Financial Values
-Use `decimal.Decimal` or `int` for all financial values. Never use `float`.
+Use `float` for all financial values. No `Decimal` types.
 
 ### IB Compatibility
 Models follow Interactive Brokers naming conventions (camelCase: `orderId`, `totalQuantity`, `lmtPrice`, `auxPrice`). Use `UNSET_DOUBLE` and `UNSET_INTEGER` sentinels for optional numeric fields.

@@ -1,5 +1,4 @@
 """Data-driven tests for stop-limit order execution using CSV formation data."""
-from decimal import Decimal
 from datetime import datetime
 from pathlib import Path
 import csv
@@ -50,12 +49,12 @@ def load_formation_data():
                     formation,
                     action,
                     bar_type,
-                    Decimal(row['Open']),
-                    Decimal(row['High']),
-                    Decimal(row['Low']),
-                    Decimal(row['Close']),
-                    Decimal(row['Stop']),
-                    Decimal(row['Limit']),
+                    float(row['Open']),
+                    float(row['High']),
+                    float(row['Low']),
+                    float(row['Close']),
+                    float(row['Stop']),
+                    float(row['Limit']),
                     row['Stop Fill'],
                     row['Limit Fill'],
                 )
@@ -70,7 +69,7 @@ def parse_fill(fill_str):
     
     Returns:
         tuple: (fill_type, fill_price) where fill_type is 'Stop', 'Open', 'Limit', or None
-               and fill_price is Decimal or None
+               and fill_price is float or None
     """
     if fill_str == "No fill":
         return None, None
@@ -79,7 +78,7 @@ def parse_fill(fill_str):
     parts = fill_str.split('(')
     fill_type = parts[0].strip()
     price_str = parts[1].rstrip(')')
-    fill_price = Decimal(price_str)
+    fill_price = float(price_str)
     
     return fill_type, fill_price
 
