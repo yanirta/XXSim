@@ -821,6 +821,36 @@ class TestTIFExpiration:
 
         assert len(fills) == 1
 
+    def test_gat_with_timezone_suffix_not_active(self, simulator):
+        """Order with timezone suffix in goodAfterTime is not active before that time."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=105.0, low=95.0, close=103.0, volume=1000
+        )
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240115 10:00:00 US/Eastern'
+        )
+        simulator.submit_order(order)
+        fills = simulator.process_bar(bar)
+        assert len(fills) == 0
+
+    def test_gat_with_timezone_suffix_active(self, simulator):
+        """Order with timezone suffix in goodAfterTime fills after that time."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 10, 30),
+            open=100.0, high=105.0, low=95.0, close=103.0, volume=1000
+        )
+        order = MarketOrder(
+            action='BUY',
+            totalQuantity=100,
+            goodAfterTime='20240115 10:00:00 US/Eastern'
+        )
+        simulator.submit_order(order)
+        fills = simulator.process_bar(bar)
+        assert len(fills) == 1
+
 
 # endregion
 

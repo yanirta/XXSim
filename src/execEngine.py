@@ -24,9 +24,15 @@ class ExecutionConfig:
     # Random seed for reproducible statistical slippage
     random_seed: Optional[int] = None
 
+    # Flat commission per fill in USD
+    commission_per_fill: float = 0.0
+
 
 class ExecutionEngine:
     """Executes orders against OHLCV bar data with recursive parent-child support."""
+
+    def __init__(self, config: Optional[ExecutionConfig] = None):
+        self._config = config or ExecutionConfig()
 
     def execute(self, order: Order, bar: BarData, parent_id: int = 0) -> list[Fill]:
         """Recursively execute order and its children.
@@ -108,7 +114,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=0.0,
+            commission=self._config.commission_per_fill,
             currency="USD",
         )
 
@@ -150,7 +156,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=0.0,
+            commission=self._config.commission_per_fill,
             currency="USD",
         )
 
@@ -193,7 +199,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=0.0,
+            commission=self._config.commission_per_fill,
             currency="USD",
         )
 
@@ -251,7 +257,7 @@ class ExecutionEngine:
         )
 
         commission = CommissionReport(
-            commission=0.0,
+            commission=self._config.commission_per_fill,
             currency="USD",
         )
 
@@ -322,7 +328,7 @@ class ExecutionEngine:
             )
 
             commission = CommissionReport(
-                commission=0.0,
+                commission=self._config.commission_per_fill,
                 currency="USD",
             )
 

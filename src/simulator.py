@@ -7,14 +7,14 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry
-from execEngine import ExecutionEngine
+from execEngine import ExecutionEngine, ExecutionConfig
 from event_emitter import EventEmitter
 
 
 @dataclass
 class SimulatorConfig:
     """Configuration for Simulator behavior."""
-    pass  # Reserved for future configuration options
+    commission_per_fill: float = 0.0
 
 
 class Simulator:
@@ -34,7 +34,9 @@ class Simulator:
 
     def __init__(self, config: Optional[SimulatorConfig] = None):
         self._config = config or SimulatorConfig()
-        self._engine = ExecutionEngine()
+        self._engine = ExecutionEngine(ExecutionConfig(
+            commission_per_fill=self._config.commission_per_fill
+        ))
         self._active_trades: dict[int, Trade] = {}
         self._oca_groups: dict[str, set[int]] = {}  # ocaGroup -> {orderId, ...}
         self._last_bar_date: Optional[date] = None
@@ -359,16 +361,26 @@ class Simulator:
         """Check if order is active based on goodAfterTime."""
         if not order.goodAfterTime:
             return True
+        # Normalize to naive for comparison — GAT strings have no tz semantics in sim
+        naive_bar_time = bar_time.replace(tzinfo=None) if bar_time.tzinfo else bar_time
         try:
             gat = datetime.strptime(order.goodAfterTime, '%Y%m%d %H:%M:%S')
-            return bar_time >= gat
+            return naive_bar_time >= gat
         except ValueError:
-            try:
-                gat = datetime.strptime(order.goodAfterTime, '%Y%m%d')
-                bar_date = bar_time.date() if isinstance(bar_time, datetime) else bar_time
-                return bar_date >= gat.date()
-            except ValueError:
-                return True
+            pass
+        # Strip timezone suffix (e.g. 'US/Eastern') and retry datetime format
+        gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
+        try:
+            gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S')
+            return naive_bar_time >= gat
+        except ValueError:
+            pass
+        try:
+            gat = datetime.strptime(order.goodAfterTime, '%Y%m%d')
+            bar_date = naive_bar_time.date() if isinstance(naive_bar_time, datetime) else naive_bar_time
+            return bar_date >= gat.date()
+        except ValueError:
+            return True
 
     def _cancel_oca_siblings(self, filled_trade: Trade) -> None:
         """Cancel all other orders in the same OCA group."""
