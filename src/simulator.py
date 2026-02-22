@@ -343,7 +343,7 @@ class Simulator:
         trade.log.append(TradeLogEntry(
             time=time,
             status='Filled',
-            message=f'Filled {total_filled} @ {avg_price}',
+            message=f'Filled {total_filled} @ {avg_price:.3f}',
         ))
         self._events.emit('status', trade)
 
