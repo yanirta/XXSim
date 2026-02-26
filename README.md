@@ -37,7 +37,13 @@ XSim relies on OHLC Data to simulate the inner motion of prices within single da
 - Others...
 
 ## Current Execution algorithm assumptions
-- No slippage
+- **Optional slippage model** — volatility-based normal distribution slippage, configurable via `ExecutionConfig`
+  - `slippage_model="none"` (default): deterministic fills at exact price
+  - `slippage_model="normal"`: slippage drawn from `N(0, bar_range / std_divider)`
+  - Direction-aware: slippage magnitude scales with bar direction (adverse = full, favorable = 25%)
+  - Trail orders use next price fragment for direction instead of overall bar direction
+  - Result always clamped to `[bar.low, bar.high]`
+  - Seeded RNG via `random_seed` for reproducible backtests
 - No partial fills
 - Aggressive approach - Order will be filled if there's a possible path between order's formation and the candlebar.
 - Trail orders assume the following order of the candles:

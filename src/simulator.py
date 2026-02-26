@@ -15,6 +15,9 @@ from event_emitter import EventEmitter
 class SimulatorConfig:
     """Configuration for Simulator behavior."""
     commission_per_fill: float = 0.0
+    slippage_model: str = "none"
+    std_divider: int = 1000
+    random_seed: Optional[int] = None
 
 
 class Simulator:
@@ -35,7 +38,10 @@ class Simulator:
     def __init__(self, config: Optional[SimulatorConfig] = None):
         self._config = config or SimulatorConfig()
         self._engine = ExecutionEngine(ExecutionConfig(
-            commission_per_fill=self._config.commission_per_fill
+            commission_per_fill=self._config.commission_per_fill,
+            slippage_model=self._config.slippage_model,
+            std_divider=self._config.std_divider,
+            random_seed=self._config.random_seed,
         ))
         self._active_trades: dict[int, Trade] = {}
         self._oca_groups: dict[str, set[int]] = {}  # ocaGroup -> {orderId, ...}
