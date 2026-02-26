@@ -294,7 +294,7 @@ class ExecutionEngine:
                 if order.stopPrice is None or price <= order.extremePrice:  # type: ignore
                     order.extremePrice = price
                     order.stopPrice = order.extremePrice + order.trailingDistance if order.trailingDistance is not None else \
-                        order.extremePrice + order.trailingPercent / 100  # type: ignore
+                        order.extremePrice * (1 + order.trailingPercent / 100)  # type: ignore
                 # Check for trigger on motion up
                 elif price >= order.stopPrice:
                     # Triggered
@@ -306,7 +306,7 @@ class ExecutionEngine:
                 if order.stopPrice is None or price >= order.extremePrice:  # type: ignore
                     order.extremePrice = price
                     order.stopPrice = order.extremePrice - order.trailingDistance if order.trailingDistance is not None else \
-                        order.extremePrice - order.trailingPercent / 100  # type: ignore
+                        order.extremePrice * (1 - order.trailingPercent / 100)  # type: ignore
                 # Check for trigger on motion down
                 elif price <= order.stopPrice:
                     # Triggered

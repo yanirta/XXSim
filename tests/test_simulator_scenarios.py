@@ -95,10 +95,11 @@ class TestBracketScenarios:
 
         stop_fill = fills[1]
         assert stop_fill.execution.side == 'SELL'
-        assert stop_fill.execution.price == pytest.approx(jan28.low)
+        # Trailing stop tracks extreme up to 697.06, stop = 697.06 - 1.95 = 695.11
+        assert stop_fill.execution.price == pytest.approx(697.06 - stop_distance)
         assert stop_fill.execution.shares == 5
 
-        # P&L (loss)
+        # P&L (loss): (695.11 - 695.89) * 5 = -3.90
         pnl = (stop_fill.execution.price - entry_fill.execution.price) * 5
         assert pnl == pytest.approx(-3.90, abs=0.01)
 
