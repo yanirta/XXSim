@@ -326,6 +326,10 @@ class Simulator:
         # Apply additions
         for child_trade in trades_to_add:
             self._active_trades[child_trade.order.orderId] = child_trade
+            if child_trade.order.ocaGroup:
+                if child_trade.order.ocaGroup not in self._oca_groups:
+                    self._oca_groups[child_trade.order.ocaGroup] = set()
+                self._oca_groups[child_trade.order.ocaGroup].add(child_trade.order.orderId)
 
         # Invoke on_bar callbacks
         self._events.emit('bar', bar, all_fills)

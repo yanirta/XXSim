@@ -459,6 +459,48 @@ class TestBarProcessing:
         assert len(cancel_events) == 1
         assert cancel_events[0].orderStatus.status == 'Cancelled'
 
+    def test_oca_children_activated_on_later_bar_cancel_sibling(self, simulator):
+        """When OCA bracket children become active on a later bar (not same bar
+        as parent fill), OCA cancellation should still work when one fills."""
+        bar1 = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=105.0, low=95.0, close=102.0, volume=1000
+        )
+        # SL fills on bar2 (low=88 triggers stop at 90)
+        bar2 = BarData(
+            date=datetime(2024, 1, 16, 9, 30),
+            open=102.0, high=103.0, low=88.0, close=91.0, volume=1200
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0, ocaGroup='bracket_1')
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=108.0, ocaGroup='bracket_1')
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        simulator.submit_order(entry)
+
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        # Bar1: entry fills at 98, children become active but neither fills
+        fills1 = simulator.process_bar(bar1)
+        entry_fills = [f for f in fills1 if f.execution.orderId == entry.orderId]
+        assert len(entry_fills) == 1
+        assert len(simulator.get_active_trades()) == 2  # SL + TP active
+
+        # Bar2: SL triggers at 90, TP should be OCA-cancelled
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 1
+        assert fills2[0].execution.orderId == stop_loss.orderId
+        assert len(simulator.get_active_trades()) == 0
+
+        # TP was cancelled by OCA
+        assert len(cancel_events) == 1
+        assert cancel_events[0].order.orderId == take_profit.orderId
+        assert cancel_events[0].orderStatus.status == 'Cancelled'
+
     def test_oca_children_unfilled_sibling_cancelled_when_other_fills(self, simulator):
         """When one OCA child fills on same bar as parent and the other
         doesn't fill, the unfilled sibling should NOT become an active trade."""
