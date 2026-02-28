@@ -37,11 +37,11 @@ XSim relies on OHLC Data to simulate the inner motion of prices within single da
 - Others...
 
 ## Current Execution algorithm assumptions
-- **Optional slippage model** — volatility-based normal distribution slippage, configurable via `ExecutionConfig`
-  - `slippage_model="none"` (default): deterministic fills at exact price
-  - `slippage_model="normal"`: slippage drawn from `N(0, bar_range / std_divider)`
-  - Direction-aware: slippage magnitude scales with bar direction (adverse = full, favorable = 25%)
-  - Trail orders use next price fragment for direction instead of overall bar direction
+- **Optional fill drift model** — volatility-based normal distribution drift, configurable via `ExecutionConfig`
+  - `fill_drift_model="none"` (default): deterministic fills at exact price
+  - `fill_drift_model="normal"`: drift drawn from `N(0, bar_range / std_divider)`
+  - Direction follows intra-bar price movement (not order side) — fill drifts where the market moves
+  - Trail orders use next price fragment for direction; other orders use close vs fill price
   - Result always clamped to `[bar.low, bar.high]`
   - Seeded RNG via `random_seed` for reproducible backtests
 - No partial fills

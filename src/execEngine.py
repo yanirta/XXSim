@@ -15,15 +15,15 @@ class ExecutionConfig:
     # Resolution strategy for ambiguous orders (multiple orders in same bar)
     ambiguity_strategy: Literal["skip", "execute_all", "postpone", "randomize"] = "skip"
 
-    # Slippage model: deterministic (exact fill at limit) or statistical (normal distribution)
-    slippage_model: Literal["none", "normal"] = "none"
+    # Fill drift model: deterministic (exact fill) or statistical (normal distribution)
+    fill_drift_model: Literal["none", "normal"] = "none"
 
-    # Standard deviation divider for normal distribution slippage
+    # Standard deviation divider for normal distribution drift
     # Price range / std_divider = std for normal distribution
-    # Higher values = less slippage variance
+    # Higher values = less drift variance
     std_divider: int = 1000
 
-    # Random seed for reproducible statistical slippage
+    # Random seed for reproducible statistical drift
     random_seed: Optional[int] = None
 
     # Flat commission per fill in USD
@@ -33,27 +33,26 @@ class ExecutionConfig:
 class ExecutionEngine:
     """Executes orders against OHLCV bar data with recursive parent-child support."""
 
-    ADVERSE_SCALE = 1.0    # magnitude when bar direction worsens the fill
-    FAVORABLE_SCALE = 0.25  # magnitude when bar direction improves the fill
-
     def __init__(self, config: Optional[ExecutionConfig] = None):
         self._config = config or ExecutionConfig()
         self._rng = np.random.default_rng(self._config.random_seed)
 
-    def _apply_slippage(self, fill_price: float, bar: BarData, action: str,
-                        next_fragment_price: Optional[float] = None) -> float:
-        """Apply volatility-based slippage to a fill price.
+    def _apply_fill_drift(self, fill_price: float, bar: BarData,
+                          next_fragment_price: Optional[float] = None) -> float:
+        """Apply volatility-based fill drift to a fill price.
 
-        Slippage always worsens the fill (BUY pays more, SELL receives less).
-        Magnitude is influenced by price direction at the fill point:
-        - For trail orders: next_fragment_price determines direction
-        - For other orders: bar direction (close vs open) determines direction
+        Drift follows intra-bar price direction — the fill drifts in the
+        direction the market is moving at the fill point, regardless of
+        order side. This is more realistic than adversarial slippage since
+        real markets move independently of your order direction.
 
-        When direction aligns with the adverse side, full magnitude applies.
-        When direction opposes, magnitude is scaled down to FAVORABLE_SCALE.
+        Direction is determined by:
+        - For trail orders: next_fragment_price (the next leg of intra-bar motion)
+        - For other orders: bar.close vs fill_price (overall bar direction from fill point)
+
         Result is clamped to [bar.low, bar.high].
         """
-        if self._config.slippage_model == "none":
+        if self._config.fill_drift_model == "none":
             return fill_price
 
         bar_range = bar.high - bar.low
@@ -63,23 +62,13 @@ class ExecutionEngine:
         std = bar_range / self._config.std_divider
         magnitude = abs(self._rng.normal(0, std))
 
-        # Determine price direction at fill point
-        if next_fragment_price is not None:
-            price_moving_up = next_fragment_price > fill_price
+        if next_fragment_price is None:
+            next_fragment_price = bar.close
+
+        if fill_price < next_fragment_price:
+            return min(fill_price + magnitude, bar.high)
         else:
-            price_moving_up = bar.close > bar.open
-
-        # BUY adverse = price moving up (pay more); SELL adverse = price moving down
-        if action in ("BUY", "BOT"):
-            adverse = price_moving_up
-            slippage = magnitude * (self.ADVERSE_SCALE if adverse else self.FAVORABLE_SCALE)
-            result = fill_price + slippage
-        else:  # SELL / SLD
-            adverse = not price_moving_up
-            slippage = magnitude * (self.ADVERSE_SCALE if adverse else self.FAVORABLE_SCALE)
-            result = fill_price - slippage
-
-        return max(bar.low, min(bar.high, result))
+            return max(fill_price - magnitude, bar.low)
 
     def execute(self, order: Order, bar: BarData, parent_id: int = 0) -> list[Fill]:
         """Recursively execute order and its children.
@@ -151,7 +140,7 @@ class ExecutionEngine:
     def _fill_market(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[list[Fill]]:
         """Fill market order at open price."""
         fill_price = bar.open
-        fill_price = self._apply_slippage(fill_price, bar, order.action)
+        fill_price = self._apply_fill_drift(fill_price, bar)
 
         execution = Execution(
             orderId=order.orderId,
@@ -183,12 +172,12 @@ class ExecutionEngine:
         if action == "BUY":
             if bar.low <= limit_price:
                 fill_price = limit_price if bar.open > limit_price else bar.open
-                return self._apply_slippage(fill_price, bar, action)
+                return self._apply_fill_drift(fill_price, bar)
             return None
         else:  # SELL
             if bar.high >= limit_price:
                 fill_price = limit_price if bar.open < limit_price else bar.open
-                return self._apply_slippage(fill_price, bar, action)
+                return self._apply_fill_drift(fill_price, bar)
             return None
 
     def _fill_limit(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[list[Fill]]:
@@ -237,7 +226,7 @@ class ExecutionEngine:
             else:
                 return None
 
-        fill_price = self._apply_slippage(fill_price, bar, order.action)
+        fill_price = self._apply_fill_drift(fill_price, bar)
         order.triggered = True
         order.triggerPrice = fill_price
 
@@ -375,7 +364,7 @@ class ExecutionEngine:
         if fill_price is not None:
             # Use next fragment for slippage direction; fall back to close
             next_frag = fragments[trigger_index + 1] if trigger_index + 1 < len(fragments) else bar.close
-            fill_price = self._apply_slippage(fill_price, bar, order.action, next_frag)
+            fill_price = self._apply_fill_drift(fill_price, bar, next_frag)
 
             execution = Execution(
                 orderId=order.orderId,
