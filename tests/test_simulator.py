@@ -541,6 +541,39 @@ class TestTIFExpiration:
         assert cancelled[0] is trade
         assert trade.log[-1].message == 'DAY order expired'
 
+    def test_day_order_does_not_fill_on_next_day(self, simulator):
+        """DAY order that misses on day 1 must not fill on day 2 even if price allows it.
+
+        Regression: previously DAY expiration ran after matching, so a DAY
+        limit buy at 98 that missed on day 1 (low=99) would fill on day 2
+        (open=95) before being expired. Now expiration runs before matching.
+        """
+        cancelled = []
+        simulator.on_cancel(lambda trade: cancelled.append(trade))
+
+        # Limit buy at 98 — day 1 low is 99, so it won't fill
+        order = LimitOrder(action='BUY', totalQuantity=100, price=98.0, tif='DAY')
+        simulator.submit_order(order)
+
+        bar1 = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=105.0, low=99.0, close=102.0, volume=1000,
+        )
+        fills1 = simulator.process_bar(bar1)
+        assert len(fills1) == 0
+        assert simulator.get_trade(order.orderId) is not None  # Still active
+
+        # Day 2 opens at 95 — below the limit. Must NOT fill (DAY expired).
+        bar2 = BarData(
+            date=datetime(2024, 1, 16, 9, 30),
+            open=95.0, high=103.0, low=94.0, close=100.0, volume=1200,
+        )
+        fills2 = simulator.process_bar(bar2)
+        assert len(fills2) == 0  # Expired before matching, not filled
+        assert simulator.get_trade(order.orderId) is None
+        assert len(cancelled) == 1
+        assert cancelled[0].orderStatus.status == 'Cancelled'
+
     def test_gtd_order_expires_after_date(self, simulator, bar_day1, bar_day2, bar_day3):
         """GTD orders expire after goodTillDate."""
         # GTD until 2024-01-16 (day2)

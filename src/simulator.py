@@ -169,18 +169,15 @@ class Simulator:
 
         Algorithm:
         1. Expire GTD orders past goodTillDate
-        2. Sort orders by distance to bar.open (for OCO priority)
-        3. For each active trade (skipping OCO-cancelled, skipping GAT not yet active):
+        2. Expire DAY orders if date changed (before matching — DAY orders
+           must not survive into the next trading day)
+        3. Sort orders by distance to bar.open (for OCO priority)
+        4. For each active trade (skipping OCO-cancelled, skipping GAT not yet active):
            a. Execute order via ExecutionEngine
            b. If filled: update trade status, cancel OCO siblings, invoke on_fill,
               submit unfilled bracket children as new trades
            c. If not filled: keep (state already mutated in-place by engine)
-        4. After matching, expire unfilled DAY orders if date changed
         5. Return all fills
-
-        DAY expiration runs after matching so that orders submitted between
-        bars get one bar attempt before expiring. This matches real-world
-        behavior where a DAY order placed at open has the full session to fill.
 
         Args:
             bar: Bar data to process
@@ -194,16 +191,20 @@ class Simulator:
         # 1. Expire GTD orders past goodTillDate
         self._expire_gtd_orders(current_date)
 
+        # 2. Expire DAY orders before matching on date change
+        if date_changed:
+            self._expire_day_orders()
+
         # Update last bar date
         self._last_bar_date = current_date
 
-        # 2. Sort trades by distance to open price for OCO priority
+        # 3. Sort trades by distance to open price for OCO priority
         trades_to_process = sorted(
             self._active_trades.items(),
             key=lambda x: self._distance_to_open(x[1].order, bar)
         )
 
-        # 3. Process each active trade
+        # 4. Process each active trade
         all_fills: list[Fill] = []
         trades_to_add: list[Trade] = []
 
@@ -325,10 +326,6 @@ class Simulator:
         # Apply additions
         for child_trade in trades_to_add:
             self._active_trades[child_trade.order.orderId] = child_trade
-
-        # 4. Expire unfilled DAY orders after matching
-        if date_changed:
-            self._expire_day_orders()
 
         # Invoke on_bar callbacks
         self._events.emit('bar', bar, all_fills)
