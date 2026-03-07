@@ -86,6 +86,7 @@ class ExecutionEngine:
         if fills and order.children:
             modified_bar = self._create_modified_bar(bar, fills[0].execution.price)
             for child in order.children:
+                # Assumes no oca, if oca exists it will have to be filtered by the caller.
                 child_fills = self.execute(child, modified_bar, parent_id=order.orderId)
                 fills.extend(child_fills)
 
