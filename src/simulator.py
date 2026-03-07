@@ -38,12 +38,13 @@ class Simulator:
     def __init__(self, time_provider: TimeProvider, config: Optional[SimulatorConfig] = None):
         self._time_provider = time_provider
         self._config = config or SimulatorConfig()
-        self._engine = ExecutionEngine(ExecutionConfig(
-            commission_per_fill=self._config.commission_per_fill,
-            fill_drift_model=self._config.fill_drift_model,
-            std_divider=self._config.std_divider,
-            random_seed=self._config.random_seed,
-        ))
+        self._engine = ExecutionEngine(
+            ExecutionConfig(
+                commission_per_fill=self._config.commission_per_fill,
+                fill_drift_model=self._config.fill_drift_model,
+                std_divider=self._config.std_divider,
+                random_seed=self._config.random_seed)
+            )
         self._active_trades: dict[int, Trade] = {}
         self._oca_groups: dict[str, set[int]] = {}  # ocaGroup -> {orderId, ...}
         self._last_bar_date: Optional[date] = None
