@@ -15,8 +15,8 @@ from simulator import Simulator
 # region Fixtures
 
 @pytest.fixture
-def simulator():
-    return Simulator()
+def simulator(time_provider):
+    return Simulator(time_provider)
 
 
 @pytest.fixture

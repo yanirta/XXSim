@@ -2,11 +2,11 @@
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
-from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry
+from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider
 from execEngine import ExecutionEngine, ExecutionConfig
 from event_emitter import EventEmitter
 
@@ -15,7 +15,7 @@ from event_emitter import EventEmitter
 class SimulatorConfig:
     """Configuration for Simulator behavior."""
     commission_per_fill: float = 0.0
-    fill_drift_model: str = "none"
+    fill_drift_model: Literal["none", "normal"] = "none"
     std_divider: int = 1000
     random_seed: Optional[int] = None
 
@@ -29,13 +29,14 @@ class Simulator:
     - Callback notifications (on_fill, on_cancel, on_status)
 
     Example:
-        sim = Simulator()
+        sim = Simulator(time_provider)
         sim.on_fill(lambda trade, fill: print(f"Filled: {fill.execution.price}"))
         trade = sim.submit_order(MarketOrder(action='BUY', totalQuantity=100))
         fills = sim.process_bar(bar)
     """
 
-    def __init__(self, config: Optional[SimulatorConfig] = None):
+    def __init__(self, time_provider: TimeProvider, config: Optional[SimulatorConfig] = None):
+        self._time_provider = time_provider
         self._config = config or SimulatorConfig()
         self._engine = ExecutionEngine(ExecutionConfig(
             commission_per_fill=self._config.commission_per_fill,
@@ -75,7 +76,7 @@ class Simulator:
                 remaining=order.totalQuantity,
             ),
             log=[TradeLogEntry(
-                time=datetime.now(),
+                time=self._time_provider.now(),
                 status='Submitted',
                 message='Order submitted',
             )],
@@ -99,16 +100,9 @@ class Simulator:
         Returns:
             True if order was found and cancelled, False otherwise
         """
-        trade = self._active_trades.pop(order_id, None)
+        trade = self._active_trades.get(order_id)
         if trade is not None:
-            trade.orderStatus.status = 'Cancelled'
-            trade.log.append(TradeLogEntry(
-                time=datetime.now(),
-                status='Cancelled',
-                message='User cancelled',
-            ))
-            self._events.emit('cancel', trade)
-            self._events.emit('status', trade)
+            self._cancel_trade(order_id, trade, 'User cancelled')
             return True
         return False
 
@@ -389,23 +383,72 @@ class Simulator:
         except ValueError:
             return True
 
+    def _cancel_trade(self, order_id: int, trade: Trade, reason: str) -> None:
+        """Cancel a trade and its OCA siblings and unsubmitted children.
+
+        This is the single cancellation path used by all cancel scenarios:
+        user cancel, OCA sibling fill, DAY expiry, GTD expiry.
+
+        Args:
+            order_id: ID of the order to cancel
+            trade: The Trade object to cancel
+            reason: Human-readable cancellation reason for log
+        """
+        self._active_trades.pop(order_id, None)
+        trade.orderStatus.status = 'Cancelled'
+        trade.log.append(TradeLogEntry(
+            time=self._time_provider.now(),
+            status='Cancelled',
+            message=reason,
+        ))
+        self._events.emit('cancel', trade)
+        self._events.emit('status', trade)
+
+        # Cancel children — recurse for active ones, create ephemeral Trade for unsubmitted
+        for child in trade.order.children:
+            if child.permId == 0:
+                child.permId = child.orderId
+            child_trade = self._active_trades.get(child.orderId)
+            if child_trade is None:
+                child_trade = Trade(
+                    order=child,
+                    orderStatus=OrderStatus(
+                        orderId=child.orderId,
+                        status='Submitted',
+                        remaining=child.totalQuantity,
+                    ),
+                    log=[],
+                )
+            self._cancel_trade(child.orderId, child_trade, f'Parent order {order_id} cancelled - {reason}')
+
+
+        # Cancel OCA siblings
+        oca_group = trade.order.ocaGroup
+        if oca_group:
+            siblings = self._oca_groups.get(oca_group, set())
+            for sibling_id in list(siblings):
+                if sibling_id != order_id and sibling_id in self._active_trades:
+                    sibling_trade = self._active_trades.pop(sibling_id)
+                    sibling_trade.orderStatus.status = 'Cancelled'
+                    sibling_trade.log.append(TradeLogEntry(
+                        time=self._time_provider.now(),
+                        status='Cancelled',
+                        message=f'OCA sibling {order_id} cancelled: {reason}',
+                    ))
+                    self._events.emit('cancel', sibling_trade)
+                    self._events.emit('status', sibling_trade)
+            self._oca_groups.pop(oca_group, None)
+
     def _cancel_oca_siblings(self, filled_trade: Trade) -> None:
-        """Cancel all other orders in the same OCA group."""
+        """Cancel all other orders in the same OCA group after a fill."""
         order = filled_trade.order
         if not order.ocaGroup:
             return
         siblings = self._oca_groups.get(order.ocaGroup, set())
         for sibling_id in list(siblings):
             if sibling_id != order.orderId and sibling_id in self._active_trades:
-                sibling_trade = self._active_trades.pop(sibling_id)
-                sibling_trade.orderStatus.status = 'Cancelled'
-                sibling_trade.log.append(TradeLogEntry(
-                    time=datetime.now(),
-                    status='Cancelled',
-                    message=f'OCO: order {order.orderId} filled',
-                ))
-                self._events.emit('cancel', sibling_trade)
-                self._events.emit('status', sibling_trade)
+                sibling_trade = self._active_trades[sibling_id]
+                self._cancel_trade(sibling_id, sibling_trade, f'OCO: order {order.orderId} filled')
         # Clean up the group
         self._oca_groups.pop(order.ocaGroup, None)
 
@@ -430,15 +473,7 @@ class Simulator:
         ]
 
         for order_id, trade in trades_to_expire:
-            self._active_trades.pop(order_id)
-            trade.orderStatus.status = 'Cancelled'
-            trade.log.append(TradeLogEntry(
-                time=datetime.now(),
-                status='Cancelled',
-                message='DAY order expired',
-            ))
-            self._events.emit('cancel', trade)
-            self._events.emit('status', trade)
+            self._cancel_trade(order_id, trade, 'DAY order expired')
 
     def _expire_gtd_orders(self, current_date: date) -> None:
         """Expire GTD orders past their goodTillDate."""
@@ -448,22 +483,14 @@ class Simulator:
             order = trade.order
             if order.tif == 'GTD' and order.goodTillDate:
                 try:
-                    gtd = datetime.strptime(order.goodTillDate, '%Y%m%d').date()
+                    gtd = datetime.strptime(order.goodTillDate[:8], '%Y%m%d').date()
                     if current_date > gtd:
                         trades_to_expire.append((order_id, trade))
                 except ValueError:
                     pass
 
         for order_id, trade in trades_to_expire:
-            self._active_trades.pop(order_id)
-            trade.orderStatus.status = 'Cancelled'
-            trade.log.append(TradeLogEntry(
-                time=datetime.now(),
-                status='Cancelled',
-                message='GTD order expired',
-            ))
-            self._events.emit('cancel', trade)
-            self._events.emit('status', trade)
+            self._cancel_trade(order_id, trade, 'GTD order expired')
 
     # endregion
 

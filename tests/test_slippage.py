@@ -542,7 +542,7 @@ class TestDriftDirection:
 
 class TestSimulatorDriftConfig:
 
-    def test_simulator_passes_drift_config(self):
+    def test_simulator_passes_drift_config(self, time_provider):
         """SimulatorConfig drift fields are passed to ExecutionEngine."""
         from simulator import Simulator, SimulatorConfig
 
@@ -551,17 +551,17 @@ class TestSimulatorDriftConfig:
             std_divider=50,
             random_seed=999,
         )
-        sim = Simulator(config)
+        sim = Simulator(time_provider, config)
 
         assert sim._engine._config.fill_drift_model == "normal"
         assert sim._engine._config.std_divider == 50
         assert sim._engine._config.random_seed == 999
 
-    def test_simulator_default_no_drift(self):
+    def test_simulator_default_no_drift(self, time_provider):
         """Default SimulatorConfig should have no drift."""
         from simulator import Simulator, SimulatorConfig
 
-        sim = Simulator()
+        sim = Simulator(time_provider)
 
         assert sim._engine._config.fill_drift_model == "none"
 

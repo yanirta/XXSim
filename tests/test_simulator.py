@@ -17,9 +17,9 @@ from simulator import Simulator
 # region Test Fixtures
 
 @pytest.fixture
-def simulator():
+def simulator(time_provider):
     """Create a fresh Simulator instance."""
-    return Simulator()
+    return Simulator(time_provider)
 
 
 @pytest.fixture
@@ -663,6 +663,27 @@ class TestTIFExpiration:
         assert len(cancelled) == 1
         assert cancelled[0] is trade
         assert trade.log[-1].message == 'GTD order expired'
+
+    def test_gtd_order_expires_with_ib_datetime_format(self, simulator, bar_day1, bar_day2, bar_day3):
+        """GTD orders expire when goodTillDate uses IB format with time and timezone."""
+        order = LimitOrder(
+            action='BUY',
+            totalQuantity=100,
+            price=50.0,
+            tif='GTD',
+            goodTillDate='20240116 16:00:00 US/Eastern'
+        )
+        trade = simulator.submit_order(order)
+
+        simulator.process_bar(bar_day1)  # Jan 15 - active
+        assert simulator.get_trade(order.orderId) is trade
+
+        simulator.process_bar(bar_day2)  # Jan 16 - still active (not past GTD)
+        assert simulator.get_trade(order.orderId) is trade
+
+        simulator.process_bar(bar_day3)  # Jan 17 - expired (past GTD)
+        assert simulator.get_trade(order.orderId) is None
+        assert trade.orderStatus.status == 'Cancelled'
 
     def test_default_tif_is_empty_string(self, simulator, bar_day1, bar_day2, bar_day3):
         """Orders with empty TIF don't expire (treated like GTC)."""
@@ -1364,6 +1385,195 @@ class TestBracketOrders:
         # Both children should be active trades
         assert simulator.get_trade(stop_loss.orderId) is not None
         assert simulator.get_trade(take_profit.orderId) is not None
+
+
+# endregion
+
+# region Parent Cancel With Children Tests
+
+class TestParentCancelWithChildren:
+    """Tests for cancellation cascading to children."""
+
+    def test_cancel_parent_cancels_unsubmitted_children(self, simulator):
+        """Cancelling a parent emits cancel events for unsubmitted bracket children."""
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=50.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=45.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=60.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        simulator.submit_order(entry)
+        simulator.cancel_order(entry.orderId)
+
+        # Parent + 2 children = 3 cancel events
+        assert len(cancel_events) == 3
+        cancelled_ids = {t.order.orderId for t in cancel_events}
+        assert entry.orderId in cancelled_ids
+        assert stop_loss.orderId in cancelled_ids
+        assert take_profit.orderId in cancelled_ids
+
+    def test_cancel_parent_sets_child_permid(self, simulator):
+        """Unsubmitted children get permId set when parent is cancelled."""
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=50.0)
+        child = StopOrder(action='SELL', totalQuantity=100, stopPrice=45.0)
+        entry.add_child(child)
+
+        simulator.submit_order(entry)
+        simulator.cancel_order(entry.orderId)
+
+        child_event = [t for t in cancel_events if t.order.orderId == child.orderId][0]
+        assert child_event.order.permId == child.orderId
+
+    def test_cancel_parent_cancels_active_children(self, simulator):
+        """Cancelling a parent also cancels children already promoted to active trades."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=110.0, low=95.0, close=105.0, volume=1000
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=85.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=120.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        simulator.submit_order(entry)
+        simulator.process_bar(bar)  # Entry fills, children become active
+
+        assert simulator.get_trade(stop_loss.orderId) is not None
+        assert simulator.get_trade(take_profit.orderId) is not None
+
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        # Cancel stop_loss — take_profit is its OCA sibling? No, they have no OCA here.
+        # Let's cancel stop_loss directly
+        simulator.cancel_order(stop_loss.orderId)
+
+        assert simulator.get_trade(stop_loss.orderId) is None
+        assert len(cancel_events) == 1
+
+    def test_day_expiry_cancels_unsubmitted_children(self, simulator):
+        """DAY parent expiry emits cancel events for unsubmitted bracket children."""
+        bar1 = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=105.0, low=95.0, close=102.0, volume=1000
+        )
+        bar2 = BarData(
+            date=datetime(2024, 1, 16, 9, 30),
+            open=102.0, high=108.0, low=100.0, close=106.0, volume=1200
+        )
+
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=50.0, tif='DAY')
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=45.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=60.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        simulator.submit_order(entry)
+        simulator.process_bar(bar1)  # Day 1 — entry doesn't fill
+        assert len(cancel_events) == 0
+
+        simulator.process_bar(bar2)  # Day 2 — DAY order expires
+
+        assert len(cancel_events) == 3
+        cancelled_ids = {t.order.orderId for t in cancel_events}
+        assert entry.orderId in cancelled_ids
+        assert stop_loss.orderId in cancelled_ids
+        assert take_profit.orderId in cancelled_ids
+
+    def test_gtd_expiry_cancels_unsubmitted_children(self, simulator):
+        """GTD parent expiry emits cancel events for unsubmitted bracket children."""
+        bar1 = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=105.0, low=95.0, close=102.0, volume=1000
+        )
+        bar2 = BarData(
+            date=datetime(2024, 1, 17, 9, 30),
+            open=108.0, high=115.0, low=106.0, close=112.0, volume=1500
+        )
+
+        entry = LimitOrder(
+            action='BUY', totalQuantity=100, price=50.0,
+            tif='GTD', goodTillDate='20240116'
+        )
+        stop_loss = StopOrder(action='SELL', totalQuantity=100, stopPrice=45.0)
+        take_profit = LimitOrder(action='SELL', totalQuantity=100, price=60.0)
+
+        entry.add_child(stop_loss)
+        entry.add_child(take_profit)
+
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        simulator.submit_order(entry)
+        simulator.process_bar(bar1)  # Jan 15 — active, doesn't fill
+        assert len(cancel_events) == 0
+
+        simulator.process_bar(bar2)  # Jan 17 — past GTD, expires
+
+        assert len(cancel_events) == 3
+        cancelled_ids = {t.order.orderId for t in cancel_events}
+        assert entry.orderId in cancelled_ids
+        assert stop_loss.orderId in cancelled_ids
+        assert take_profit.orderId in cancelled_ids
+
+    def test_cancel_parent_child_log_references_parent(self, simulator):
+        """Cancelled children's log message references the parent order ID."""
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=50.0)
+        child = StopOrder(action='SELL', totalQuantity=100, stopPrice=45.0)
+        entry.add_child(child)
+
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        simulator.submit_order(entry)
+        simulator.cancel_order(entry.orderId)
+
+        child_event = [t for t in cancel_events if t.order.orderId == child.orderId][0]
+        assert f'Parent order {entry.orderId} cancelled' in child_event.log[-1].message
+
+    def test_oca_sibling_cancel_cascades_to_children(self, simulator):
+        """When an OCA sibling fills and cancels an order, that order's
+        unsubmitted children are also cancelled."""
+        bar = BarData(
+            date=datetime(2024, 1, 15, 9, 30),
+            open=100.0, high=105.0, low=95.0, close=102.0, volume=1000
+        )
+
+        # Two entries in OCA group — order1 fills, order2 gets cancelled
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='entries')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='entries')
+
+        # order2 has bracket children
+        sl = StopOrder(action='SELL', totalQuantity=100, stopPrice=85.0)
+        tp = LimitOrder(action='SELL', totalQuantity=100, price=100.0)
+        order2.add_child(sl)
+        order2.add_child(tp)
+
+        cancel_events = []
+        simulator.on_cancel(lambda t: cancel_events.append(t))
+
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+        simulator.process_bar(bar)  # order1 fills, order2 OCA-cancelled
+
+        cancelled_ids = {t.order.orderId for t in cancel_events}
+        assert order2.orderId in cancelled_ids
+        assert sl.orderId in cancelled_ids
+        assert tp.orderId in cancelled_ids
 
 
 # endregion
