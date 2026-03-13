@@ -105,6 +105,8 @@ class ExecutionEngine:
         """
         if order.orderType == 'MKT':
             return self._fill_market(order, bar, parent_id)
+        elif order.orderType == 'MOC':
+            return self._fill_moc(order, bar, parent_id)
         elif order.orderType == 'LMT':
             return self._fill_limit(order, bar, parent_id)
         elif order.orderType == 'STP':
@@ -137,6 +139,37 @@ class ExecutionEngine:
             close=original.close,
             volume=original.volume
         )
+
+    def _fill_moc(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[list[Fill]]:
+        """Fill Market-on-Close order at bar close price.
+
+        Only fills on bars marked is_close_bar=True (last bar of the trading day).
+        Returns None on intraday bars so the order stays active until the close bar.
+        """
+        if not bar.is_close_bar:
+            return None
+        fill_price = bar.close
+
+        execution = Execution(
+            orderId=order.orderId,
+            time=bar.date,
+            shares=order.totalQuantity,
+            price=fill_price,
+            side=order.action,
+        )
+
+        commission = CommissionReport(
+            commission=self._config.commission_per_fill,
+            currency="USD",
+        )
+
+        return [Fill(
+            order=order,
+            execution=execution,
+            commissionReport=commission,
+            time=bar.date,
+            parentId=parent_id,
+        )]
 
     def _fill_market(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[list[Fill]]:
         """Fill market order at open price."""
@@ -362,7 +395,7 @@ class ExecutionEngine:
 
             prev_price = price
 
-        if fill_price is not None:
+        if fill_price is not None and trigger_index is not None:
             # Use next fragment for slippage direction; fall back to close
             next_frag = fragments[trigger_index + 1] if trigger_index + 1 < len(fragments) else bar.close
             fill_price = self._apply_fill_drift(fill_price, bar, next_frag)

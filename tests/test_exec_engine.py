@@ -2,7 +2,7 @@
 from datetime import datetime
 import pytest
 
-from xtrading_models import BarData, MarketOrder, LimitOrder, StopOrder, StopLimitOrder
+from xtrading_models import BarData, MarketOrder, MarketOnCloseOrder, LimitOrder, StopOrder, StopLimitOrder
 from execEngine import ExecutionEngine
 
 
@@ -139,5 +139,51 @@ def test_stop_limit_no_trigger(engine, bullish_bar):
 
     assert len(fills) == 0
     assert order.triggered is False
+
+# endregion
+
+
+# region MOC Order Tests
+
+def test_moc_order_fills_at_close_on_close_bar(engine, bullish_bar):
+    """MOC order fills at bar.close when is_close_bar=True."""
+    close_bar = bullish_bar.model_copy(update={'is_close_bar': True})
+    order = MarketOnCloseOrder(action="BUY", totalQuantity=100)
+    fills = engine.execute(order, close_bar)
+    assert len(fills) == 1
+    assert fills[0].execution.price == 150.0  # close
+
+
+def test_moc_order_does_not_fill_on_non_close_bar(engine, bullish_bar):
+    """MOC order returns empty fills when is_close_bar=False."""
+    order = MarketOnCloseOrder(action="BUY", totalQuantity=100)
+    fills = engine.execute(order, bullish_bar)
+    assert fills == []
+
+
+def test_moc_sell_fills_at_close(engine):
+    """MOC SELL fills at bar.close on the close bar."""
+    close_bar = BarData(
+        date=datetime(2025, 1, 1, 16, 0),
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=103.0,
+        volume=500000,
+        is_close_bar=True,
+    )
+    order = MarketOnCloseOrder(action="SELL", totalQuantity=50)
+    fills = engine.execute(order, close_bar)
+    assert len(fills) == 1
+    assert fills[0].execution.price == 103.0
+    assert fills[0].execution.side == "SELL"
+
+
+def test_moc_order_quantity_correct(engine, bullish_bar):
+    """MOC fill quantity matches order quantity."""
+    close_bar = bullish_bar.model_copy(update={'is_close_bar': True})
+    order = MarketOnCloseOrder(action="BUY", totalQuantity=200)
+    fills = engine.execute(order, close_bar)
+    assert fills[0].execution.shares == 200
 
 # endregion
