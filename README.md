@@ -29,10 +29,11 @@ XSim relies on OHLC Data to simulate the inner motion of prices within single da
 - StopOrder
 - StopLimitOrder
 - TrailingStopMarket
+- MarketOnCloseOrder (MOC) — fills at `bar.close` only on bars where `BarData.is_close_bar=True`
 
 ## Not supported order types (at the moment)
 - Trailing Stop Limit Orders
-- Market-on-Close (MOC) / Limit-on-Close (LOC)
+- Limit-on-Close (LOC)
 - Market-if-Touched (MIT)
 - Others...
 

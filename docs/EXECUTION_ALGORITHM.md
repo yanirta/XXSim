@@ -16,6 +16,7 @@ XSim simulates order execution using OHLCV bar data. The core challenge: **recon
 
 **Achievements:**
 - ✅ **Market Orders**: Fill at bar.open
+- ✅ **Market-on-Close (MOC)**: Fill at bar.close, only when `BarData.is_close_bar=True`; pending on all other bars
 - ✅ **Limit Orders**: Fill when bar touches limit price
   - BUY: fills if `bar.low <= limit`, at `min(bar.open, limit)`
   - SELL: fills if `bar.high >= limit`, at `max(bar.open, limit)`
@@ -285,7 +286,7 @@ See CLAUDE.md for API documentation.
 #### Planning Items
 - **Order orchestration**: Bracket orders (OCO), parent-child relationships
 - **TIF extensions**: FOK (Fill-or-Kill), IOC (Immediate-or-Cancel)
-- **Special execution**: Market-on-Close (MOC), Limit-on-Close (LOC)
+- **Special execution**: Limit-on-Close (LOC) *(MOC completed in v0.14.0)*
 - **Volume constraints**: Partial fills based on bar.volume
 - **Multi-leg strategies**: Spread orders, ratio orders
 
