@@ -273,9 +273,14 @@ def execute(order, bar, state=None):
 
 **Implementation:** `Simulator` class wrapping `ExecutionEngine`:
 - **Order book management**: submit, cancel, update, query orders
-- **TIF support**: GTC (never expires), DAY (expires on date change), GTD (expires after goodTillDate)
+- **TIF support**:
+  - **GTC**: Never expires
+  - **DAY**: Expires at the start of the next trading day, but *only* for orders submitted on a prior day — orders submitted today (e.g. during `execute()` before bars run) survive
+  - **GTD**: Expires after `goodTillDate`
+  - **GTC + GAT**: Order stays active indefinitely but skips bars before `goodAfterTime`; used for bracket children that should only activate on day N (e.g. max-hold MOC exits)
 - **Event callbacks**: on_fill, on_cancel, on_update, on_bar
 - **Bar processing**: Automatic order carry-forward, child order promotion on partial fills
+- **MOC + GTC + GAT pattern**: Enables pre-attached exit children that activate after N trading days (bracket max-hold exits)
 
 See CLAUDE.md for API documentation.
 
@@ -284,7 +289,7 @@ See CLAUDE.md for API documentation.
 ### Phase 3: Advanced Execution Features 📋 **FUTURE**
 
 #### Planning Items
-- **Order orchestration**: Bracket orders (OCO), parent-child relationships
+- **Order orchestration**: Bracket orders (OCO), parent-child relationships *(GTC+GAT bracket children completed in v0.15.0)*
 - **TIF extensions**: FOK (Fill-or-Kill), IOC (Immediate-or-Cancel)
 - **Special execution**: Limit-on-Close (LOC) *(MOC completed in v0.14.0)*
 - **Volume constraints**: Partial fills based on bar.volume

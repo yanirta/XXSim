@@ -187,8 +187,10 @@ class Simulator:
         self._expire_gtd_orders(current_date)
 
         # 2. Expire DAY orders before matching on date change
+        #    Only expire orders submitted on a prior day — orders submitted
+        #    today (during execute() before exec bars run) must not be cancelled.
         if date_changed:
-            self._expire_day_orders()
+            self._expire_day_orders(current_date)
 
         # Update last bar date
         self._last_bar_date = current_date
@@ -465,12 +467,18 @@ class Simulator:
         for bar in bars:
             self.process_bar(bar)
 
-    def _expire_day_orders(self) -> None:
-        """Expire all DAY orders (called on date change)."""
+    def _expire_day_orders(self, current_date: date) -> None:
+        """Expire DAY orders submitted on a prior trading day.
+
+        Orders submitted today (e.g. during execute() before exec bars run)
+        are not expired — only orders left over from a previous day.
+        """
         trades_to_expire = [
             (order_id, trade)
             for order_id, trade in self._active_trades.items()
             if trade.order.tif == 'DAY'
+            and trade.log
+            and trade.log[0].time.date() < current_date
         ]
 
         for order_id, trade in trades_to_expire:
