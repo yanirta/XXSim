@@ -14,7 +14,7 @@ pytest tests/test_file.py::test_function -v
 ### Core Components
 
 - **`src/execEngine.py`**: `ExecutionEngine` - recursive order execution against bar data. Handles order type dispatch and parent-child relationships.
-- **`src/simulator.py`**: `Simulator` - wraps ExecutionEngine to manage order lifecycle across multiple bars.
+- **`src/simulator.py`**: `Simulator` - wraps ExecutionEngine to manage order lifecycle across multiple bars. `SimulatorConfig` controls fill drift (`fill_drift_model`, `std_divider`) and commission.
 
 ### Execution Flow
 
@@ -39,6 +39,15 @@ sim.get_trade(order_id)
 sim.get_active_trades()
 fills = sim.process_bar(bar)
 ```
+
+### Order Type Support
+
+- **MKT**: Fills at bar.open (with optional drift)
+- **LMT**: Fills when bar trades through limit price
+- **STP**: Creates MKT child when stop price hit
+- **STP LMT**: Creates LMT child when stop price hit
+- **TRAIL**: Trailing stop; adjusts dynamically with price
+- **MOC** (Market-on-Close): Only fills when `bar.is_close_bar=True`; fills at `bar.close`
 
 ### TIF Support
 
