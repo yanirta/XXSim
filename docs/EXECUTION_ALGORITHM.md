@@ -278,7 +278,7 @@ def execute(order, bar, state=None):
   - **DAY**: Expires at the start of the next trading day, but *only* for orders submitted on a prior day — orders submitted today (e.g. during `execute()` before bars run) survive
   - **GTD**: Expires after `goodTillDate`
   - **GTC + GAT**: Order stays active indefinitely but skips bars before `goodAfterTime`; used for bracket children that should only activate on day N (e.g. max-hold MOC exits)
-- **Event callbacks**: on_fill, on_cancel, on_update, on_bar
+- **Event callbacks**: on_fill, on_cancel, on_update, on_bar, off_bar (unsubscribe)
 - **Bar processing**: Automatic order carry-forward, child order promotion on partial fills
 - **MOC + GTC + GAT pattern**: Enables pre-attached exit children that activate after N trading days (bracket max-hold exits)
 

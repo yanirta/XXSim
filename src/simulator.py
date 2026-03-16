@@ -540,4 +540,8 @@ class Simulator:
         """
         self._events.on('bar', callback)
 
+    def off_bar(self, callback: Callable[[BarData, list[Fill]], None]) -> None:
+        """Remove a previously registered bar callback."""
+        self._events.off('bar', callback)
+
     # endregion

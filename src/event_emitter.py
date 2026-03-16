@@ -22,6 +22,11 @@ class EventEmitter:
             self._callbacks[event] = []
         self._callbacks[event].append(callback)
 
+    def off(self, event: str, callback: Callable) -> None:
+        """Remove a previously registered callback for a named event."""
+        if event in self._callbacks:
+            self._callbacks[event].remove(callback)
+
     def emit(self, event: str, *args) -> None:
         """Invoke all callbacks registered for the event."""
         for callback in self._callbacks.get(event, []):

@@ -68,3 +68,26 @@ class TestEventEmitter:
         emitter.emit('ping')
 
         callback.assert_called_once_with()
+
+    def test_off_removes_callback(self):
+        emitter = EventEmitter()
+        callback = MagicMock()
+
+        emitter.on('fill', callback)
+        emitter.off('fill', callback)
+        emitter.emit('fill', 'data')
+
+        callback.assert_not_called()
+
+    def test_off_only_removes_specified_callback(self):
+        emitter = EventEmitter()
+        cb1 = MagicMock()
+        cb2 = MagicMock()
+
+        emitter.on('fill', cb1)
+        emitter.on('fill', cb2)
+        emitter.off('fill', cb1)
+        emitter.emit('fill', 'data')
+
+        cb1.assert_not_called()
+        cb2.assert_called_once_with('data')

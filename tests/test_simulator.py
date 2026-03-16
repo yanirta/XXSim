@@ -1137,6 +1137,21 @@ class TestOnBarCallback:
         assert bars_seen[1] is bar_day2
         assert bars_seen[2] is bar_day3
 
+    def test_off_bar_stops_callback(self, simulator, bar_day1, bar_day2):
+        """off_bar removes callback so it no longer receives bars."""
+        bars_received = []
+
+        def on_bar(bar, fills):
+            bars_received.append(bar)
+
+        simulator.on_bar(on_bar)
+        simulator.process_bar(bar_day1)
+        simulator.off_bar(on_bar)
+        simulator.process_bar(bar_day2)
+
+        assert len(bars_received) == 1
+        assert bars_received[0] is bar_day1
+
     def test_run_with_strategy(self, simulator):
         """Full backtest simulation using run() and on_bar."""
         fills_received = []
