@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
 from execEngine import ExecutionEngine, ExecutionConfig
-from event_emitter import EventEmitter
+from event_emitter import EventEmitter, SimulatorEvent
 
 
 @dataclass
@@ -89,7 +89,7 @@ class Simulator:
             self._oca_groups[order.ocaGroup].add(order.orderId)
 
         self._active_trades[order.orderId] = trade
-        self._events.emit('status', trade)
+        self._events.emit(SimulatorEvent.status, trade)
         return trade
 
     def cancel_order(self, order_id: int) -> bool:
@@ -129,7 +129,7 @@ class Simulator:
             if key in allowed_fields and hasattr(order, key):
                 setattr(order, key, value)
 
-        self._events.emit('status', trade)
+        self._events.emit(SimulatorEvent.status, trade)
         return True
 
     # endregion
@@ -225,7 +225,7 @@ class Simulator:
                 self._update_trade_filled(trade, parent_fills, bar.date)
                 all_fills.extend(parent_fills)
                 for fill in parent_fills:
-                    self._events.emit('fill', trade, fill)
+                    self._events.emit(SimulatorEvent.fill, trade, fill)
                 self._cancel_oca_siblings(trade)
 
                 # Create trades for children (filled or unfilled)
@@ -261,8 +261,8 @@ class Simulator:
                                 message=f'OCO: sibling filled on same bar',
                             )],
                         )
-                        self._events.emit('cancel', child_trade)
-                        self._events.emit('status', child_trade)
+                        self._events.emit(SimulatorEvent.cancel, child_trade)
+                        self._events.emit(SimulatorEvent.status, child_trade)
                         continue
 
                     cf = child_fills_by_id.get(child.orderId)
@@ -283,7 +283,7 @@ class Simulator:
                         self._update_trade_filled(child_trade, cf, bar.date)
                         all_fills.extend(cf)
                         for fill in cf:
-                            self._events.emit('fill', child_trade, fill)
+                            self._events.emit(SimulatorEvent.fill, child_trade, fill)
                     else:
                         # Unfilled child — but if OCA sibling already filled, cancel
                         if child.ocaGroup and child.ocaGroup in oca_winner:
@@ -300,8 +300,8 @@ class Simulator:
                                     message=f'OCO: sibling filled on same bar',
                                 )],
                             )
-                            self._events.emit('cancel', child_trade)
-                            self._events.emit('status', child_trade)
+                            self._events.emit(SimulatorEvent.cancel, child_trade)
+                            self._events.emit(SimulatorEvent.status, child_trade)
                         else:
                             child_trade = Trade(
                                 order=child,
@@ -329,7 +329,7 @@ class Simulator:
                 self._oca_groups[child_trade.order.ocaGroup].add(child_trade.order.orderId)
 
         # Invoke on_bar callbacks
-        self._events.emit('bar', bar, all_fills)
+        self._events.emit(SimulatorEvent.bar, bar, all_fills)
 
         return all_fills
 
@@ -349,7 +349,7 @@ class Simulator:
             status=TradeStatus.Filled,
             message=f'Filled {total_filled} @ {avg_price:.3f}',
         ))
-        self._events.emit('status', trade)
+        self._events.emit(SimulatorEvent.status, trade)
 
     def _distance_to_open(self, order: Order, bar: BarData) -> float:
         """Calculate distance from order's trigger price to bar.open.
@@ -427,8 +427,8 @@ class Simulator:
         """
         cancelled = self._collect_cancel_subtree(order_id, trade, reason)
         for t in cancelled:
-            self._events.emit('cancel', t)
-            self._events.emit('status', t)
+            self._events.emit(SimulatorEvent.cancel, t)
+            self._events.emit(SimulatorEvent.status, t)
 
         # Cancel OCA siblings — two-pass so callbacks see a resolved group
         oca_group = trade.order.ocaGroup
@@ -442,8 +442,8 @@ class Simulator:
                         sibling_id, sibling_trade, f'OCA sibling {order_id} cancelled: {reason}'
                     ))
             for t in oca_cancelled:
-                self._events.emit('cancel', t)
-                self._events.emit('status', t)
+                self._events.emit(SimulatorEvent.cancel, t)
+                self._events.emit(SimulatorEvent.status, t)
 
     def _cancel_oca_siblings(self, filled_trade: Trade) -> None:
         """Cancel all other orders in the same OCA group after a fill.
@@ -465,8 +465,8 @@ class Simulator:
                     sibling_id, sibling_trade, f'OCO: order {order.orderId} filled'
                 ))
         for t in oca_cancelled:
-            self._events.emit('cancel', t)
-            self._events.emit('status', t)
+            self._events.emit(SimulatorEvent.cancel, t)
+            self._events.emit(SimulatorEvent.status, t)
 
     def run(self, bars) -> None:
         """Process a sequence of bars.
@@ -524,7 +524,7 @@ class Simulator:
         Args:
             callback: Function called with (Trade, Fill) when order is filled
         """
-        self._events.on('fill', callback)
+        self._events.on(SimulatorEvent.fill, callback)
 
     def on_cancel(self, callback: Callable[[Trade], None]) -> None:
         """Register a callback for cancel events.
@@ -533,7 +533,7 @@ class Simulator:
             callback: Function called with Trade when order is cancelled.
                       Cancel reason is in trade.log[-1].message.
         """
-        self._events.on('cancel', callback)
+        self._events.on(SimulatorEvent.cancel, callback)
 
     def on_status(self, callback: Callable[[Trade], None]) -> None:
         """Register a callback for any status change events.
@@ -541,7 +541,7 @@ class Simulator:
         Args:
             callback: Function called with Trade on any status change
         """
-        self._events.on('status', callback)
+        self._events.on(SimulatorEvent.status, callback)
 
     def on_bar(self, callback: Callable[[BarData, list[Fill]], None]) -> None:
         """Register a callback for bar processing events.
@@ -551,10 +551,10 @@ class Simulator:
         Args:
             callback: Function called with (BarData, list[Fill]) after each bar
         """
-        self._events.on('bar', callback)
+        self._events.on(SimulatorEvent.bar, callback)
 
     def off_bar(self, callback: Callable[[BarData, list[Fill]], None]) -> None:
         """Remove a previously registered bar callback."""
-        self._events.off('bar', callback)
+        self._events.off(SimulatorEvent.bar, callback)
 
     # endregion

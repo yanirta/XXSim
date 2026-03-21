@@ -1,9 +1,17 @@
 """Generic event emitter — observer pattern with fault-isolated dispatch."""
 
 import logging
+from enum import Enum
 from typing import Callable
 
 logger = logging.getLogger(__name__)
+
+
+class SimulatorEvent(str, Enum):
+    fill = 'fill'
+    cancel = 'cancel'
+    status = 'status'
+    bar = 'bar'
 
 
 class EventEmitter:

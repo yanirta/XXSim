@@ -100,6 +100,7 @@ The Simulator supports:
 - **OCO**: `ocaGroup` — when one order fills, linked siblings are cancelled
 - **Bracket orders**: child orders activate when parent fills
 - **Callbacks**: `on_fill`, `on_cancel`, `on_status`, `on_bar`
+- **`SimulatorEvent`**: enum of all event names (`fill`, `cancel`, `status`, `bar`) — use instead of raw strings when subscribing via `EventEmitter` directly
 
 ## Development
 
