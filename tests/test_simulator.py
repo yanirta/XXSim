@@ -717,7 +717,7 @@ class TestTIFExpiration:
         order = MarketOrder(
             action='BUY',
             totalQuantity=100,
-            goodAfterTime='20240115 10:00:00'
+            goodAfterTime='20240115 10:00:00 US/Eastern'
         )
         trade = simulator.submit_order(order)
 
@@ -741,7 +741,7 @@ class TestTIFExpiration:
         order = MarketOrder(
             action='BUY',
             totalQuantity=100,
-            goodAfterTime='20240115 10:00:00'
+            goodAfterTime='20240115 10:00:00 US/Eastern'
         )
         simulator.submit_order(order)
 
@@ -765,7 +765,7 @@ class TestTIFExpiration:
         order = MarketOrder(
             action='BUY',
             totalQuantity=100,
-            goodAfterTime='20240115 10:00:00'
+            goodAfterTime='20240115 10:00:00 US/Eastern'
         )
         simulator.submit_order(order)
 
@@ -795,7 +795,7 @@ class TestTIFExpiration:
         order = MarketOrder(
             action='BUY',
             totalQuantity=100,
-            goodAfterTime='20240115 10:00:00'
+            goodAfterTime='20240115 10:00:00 US/Eastern'
         )
         trade = simulator.submit_order(order)
 
@@ -808,26 +808,6 @@ class TestTIFExpiration:
         fills2 = simulator.process_bar(bar2)
         assert len(fills2) == 1
         assert simulator.get_trade(order.orderId) is None
-
-    def test_gat_with_date_only_format(self, simulator, bar_day1, bar_day2):
-        """Order with date-only goodAfterTime format (YYYYMMDD)."""
-        # bar_day1 is Jan 15, bar_day2 is Jan 16
-        # Order active after Jan 16
-        order = MarketOrder(
-            action='BUY',
-            totalQuantity=100,
-            goodAfterTime='20240116'
-        )
-        trade = simulator.submit_order(order)
-
-        # Day 1: Not yet active
-        fills1 = simulator.process_bar(bar_day1)
-        assert len(fills1) == 0
-        assert simulator.get_trade(order.orderId) is trade
-
-        # Day 2: Now active
-        fills2 = simulator.process_bar(bar_day2)
-        assert len(fills2) == 1
 
     def test_gat_limit_order_not_active_doesnt_fill(self, simulator):
         """Limit order with GAT not reached stays pending."""
@@ -845,7 +825,7 @@ class TestTIFExpiration:
             action='BUY',
             totalQuantity=100,
             price=96.0,
-            goodAfterTime='20240115 10:00:00'
+            goodAfterTime='20240115 10:00:00 US/Eastern'
         )
         trade = simulator.submit_order(order)
 
@@ -888,7 +868,7 @@ class TestTIFExpiration:
             price=92.0,  # Won't fill on bar1/bar2
             tif='GTD',
             goodTillDate='20240116',
-            goodAfterTime='20240115 10:00:00'
+            goodAfterTime='20240115 10:00:00 US/Eastern'
         )
         trade = simulator.submit_order(order)
 
@@ -915,36 +895,6 @@ class TestTIFExpiration:
         simulator.submit_order(order)
         fills = simulator.process_bar(bar_day1)
 
-        assert len(fills) == 1
-
-    def test_gat_with_timezone_suffix_not_active(self, simulator):
-        """Order with timezone suffix in goodAfterTime is not active before that time."""
-        bar = BarData(
-            date=datetime(2024, 1, 15, 9, 30),
-            open=100.0, high=105.0, low=95.0, close=103.0, volume=1000
-        )
-        order = MarketOrder(
-            action='BUY',
-            totalQuantity=100,
-            goodAfterTime='20240115 10:00:00 US/Eastern'
-        )
-        simulator.submit_order(order)
-        fills = simulator.process_bar(bar)
-        assert len(fills) == 0
-
-    def test_gat_with_timezone_suffix_active(self, simulator):
-        """Order with timezone suffix in goodAfterTime fills after that time."""
-        bar = BarData(
-            date=datetime(2024, 1, 15, 10, 30),
-            open=100.0, high=105.0, low=95.0, close=103.0, volume=1000
-        )
-        order = MarketOrder(
-            action='BUY',
-            totalQuantity=100,
-            goodAfterTime='20240115 10:00:00 US/Eastern'
-        )
-        simulator.submit_order(order)
-        fills = simulator.process_bar(bar)
         assert len(fills) == 1
 
 

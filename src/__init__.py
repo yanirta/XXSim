@@ -16,7 +16,8 @@ from xtrading_models import (
 from .execEngine import ExecutionEngine, ExecutionConfig
 from .simulator import Simulator, SimulatorConfig
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+__version__ = version("xxsim")
 
 __all__ = [
     "Order",

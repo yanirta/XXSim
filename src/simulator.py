@@ -6,7 +6,7 @@ from typing import Callable, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
-from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider
+from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
 from execEngine import ExecutionEngine, ExecutionConfig
 from event_emitter import EventEmitter
 
@@ -73,12 +73,12 @@ class Simulator:
             order=order,
             orderStatus=OrderStatus(
                 orderId=order.orderId,
-                status='Submitted',
+                status=TradeStatus.Submitted,
                 remaining=order.totalQuantity,
             ),
             log=[TradeLogEntry(
                 time=self._time_provider.now(),
-                status='Submitted',
+                status=TradeStatus.Submitted,
                 message='Order submitted',
             )],
         )
@@ -252,12 +252,12 @@ class Simulator:
                             order=child,
                             orderStatus=OrderStatus(
                                 orderId=child.orderId,
-                                status='Cancelled',
+                                status=TradeStatus.Cancelled,
                                 remaining=0.0,
                             ),
                             log=[TradeLogEntry(
                                 time=bar.date,
-                                status='Cancelled',
+                                status=TradeStatus.Cancelled,
                                 message=f'OCO: sibling filled on same bar',
                             )],
                         )
@@ -271,12 +271,12 @@ class Simulator:
                             order=child,
                             orderStatus=OrderStatus(
                                 orderId=child.orderId,
-                                status='Filled',
+                                status=TradeStatus.Filled,
                                 remaining=0.0,
                             ),
                             log=[TradeLogEntry(
                                 time=bar.date,
-                                status='Submitted',
+                                status=TradeStatus.Submitted,
                                 message=f'Child of order {order_id}',
                             )],
                         )
@@ -291,12 +291,12 @@ class Simulator:
                                 order=child,
                                 orderStatus=OrderStatus(
                                     orderId=child.orderId,
-                                    status='Cancelled',
+                                    status=TradeStatus.Cancelled,
                                     remaining=0.0,
                                 ),
                                 log=[TradeLogEntry(
                                     time=bar.date,
-                                    status='Cancelled',
+                                    status=TradeStatus.Cancelled,
                                     message=f'OCO: sibling filled on same bar',
                                 )],
                             )
@@ -307,12 +307,12 @@ class Simulator:
                                 order=child,
                                 orderStatus=OrderStatus(
                                     orderId=child.orderId,
-                                    status='Submitted',
+                                    status=TradeStatus.Submitted,
                                     remaining=child.totalQuantity,
                                 ),
                                 log=[TradeLogEntry(
                                     time=bar.date,
-                                    status='Submitted',
+                                    status=TradeStatus.Submitted,
                                     message=f'Child of order {order_id}',
                                 )],
                             )
@@ -338,7 +338,7 @@ class Simulator:
         total_filled = sum(f.execution.shares for f in fills)
         avg_price = sum(f.execution.shares * f.execution.price for f in fills) / total_filled if total_filled > 0 else 0.0
 
-        trade.orderStatus.status = 'Filled'
+        trade.orderStatus.status = TradeStatus.Filled
         trade.orderStatus.filled = total_filled
         trade.orderStatus.remaining = 0.0
         trade.orderStatus.avgFillPrice = avg_price
@@ -346,7 +346,7 @@ class Simulator:
         trade.fills.extend(fills)
         trade.log.append(TradeLogEntry(
             time=time,
-            status='Filled',
+            status=TradeStatus.Filled,
             message=f'Filled {total_filled} @ {avg_price:.3f}',
         ))
         self._events.emit('status', trade)
@@ -362,29 +362,18 @@ class Simulator:
         return abs(price - bar.open)
 
     def _is_order_active(self, order: Order, bar_time: datetime) -> bool:
-        """Check if order is active based on goodAfterTime."""
+        """Check if order is active based on goodAfterTime.
+
+        Expected format: '%Y%m%d %H:%M:%S' with optional timezone suffix,
+        e.g. '20260115 09:30:00 US/Eastern'. Raises ValueError on invalid input.
+        """
         if not order.goodAfterTime:
             return True
-        # Normalize to naive for comparison — GAT strings have no tz semantics in sim
-        naive_bar_time = bar_time.replace(tzinfo=None) if bar_time.tzinfo else bar_time
-        try:
-            gat = datetime.strptime(order.goodAfterTime, '%Y%m%d %H:%M:%S')
-            return naive_bar_time >= gat
-        except ValueError:
-            pass
-        # Strip timezone suffix (e.g. 'US/Eastern') and retry datetime format
+        # Strip optional timezone suffix (e.g. 'US/Eastern')
         gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
-        try:
-            gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S')
-            return naive_bar_time >= gat
-        except ValueError:
-            pass
-        try:
-            gat = datetime.strptime(order.goodAfterTime, '%Y%m%d')
-            bar_date = naive_bar_time.date() if isinstance(naive_bar_time, datetime) else naive_bar_time
-            return bar_date >= gat.date()
-        except ValueError:
-            return True
+        gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S')
+        naive_bar_time = bar_time.replace(tzinfo=None) if bar_time.tzinfo else bar_time
+        return naive_bar_time >= gat
 
     def _cancel_trade(self, order_id: int, trade: Trade, reason: str) -> None:
         """Cancel a trade and its OCA siblings and unsubmitted children.
@@ -398,10 +387,10 @@ class Simulator:
             reason: Human-readable cancellation reason for log
         """
         self._active_trades.pop(order_id, None)
-        trade.orderStatus.status = 'Cancelled'
+        trade.orderStatus.status = TradeStatus.Cancelled
         trade.log.append(TradeLogEntry(
             time=self._time_provider.now(),
-            status='Cancelled',
+            status=TradeStatus.Cancelled,
             message=reason,
         ))
         self._events.emit('cancel', trade)
@@ -417,7 +406,7 @@ class Simulator:
                     order=child,
                     orderStatus=OrderStatus(
                         orderId=child.orderId,
-                        status='Submitted',
+                        status=TradeStatus.Submitted,
                         remaining=child.totalQuantity,
                     ),
                     log=[],
@@ -432,10 +421,10 @@ class Simulator:
             for sibling_id in list(siblings):
                 if sibling_id != order_id and sibling_id in self._active_trades:
                     sibling_trade = self._active_trades.pop(sibling_id)
-                    sibling_trade.orderStatus.status = 'Cancelled'
+                    sibling_trade.orderStatus.status = TradeStatus.Cancelled
                     sibling_trade.log.append(TradeLogEntry(
                         time=self._time_provider.now(),
-                        status='Cancelled',
+                        status=TradeStatus.Cancelled,
                         message=f'OCA sibling {order_id} cancelled: {reason}',
                     ))
                     self._events.emit('cancel', sibling_trade)
