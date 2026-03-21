@@ -1753,5 +1753,31 @@ class TestOCOOrders:
         assert trade1.orderStatus.status == 'Filled'
         assert trade2.orderStatus.status == 'Cancelled'
 
+    def test_oco_cancel_callback_can_submit_replacement_in_same_group(self, simulator, bar_day1, bar_day2):
+        """Order submitted into the same OCA group from within an on_cancel callback
+        must not be orphaned — it should remain active after the group is cleaned up."""
+        order1 = LimitOrder(action='BUY', totalQuantity=100, price=96.0, ocaGroup='g1')
+        order2 = LimitOrder(action='BUY', totalQuantity=100, price=90.0, ocaGroup='g1')
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        replacement = LimitOrder(action='BUY', totalQuantity=100, price=88.0, ocaGroup='g1')
+
+        def on_cancel(trade):
+            if trade.order.orderId == order2.orderId:
+                simulator.submit_order(replacement)
+
+        simulator.on_cancel(on_cancel)
+
+        # bar_day1: order1 fills (low=95 < 96), order2 is OCA-cancelled → callback submits replacement
+        simulator.process_bar(bar_day1)
+
+        assert simulator.get_trade(replacement.orderId) is not None  # replacement is active, not orphaned
+
+        # bar_day2: replacement should still be evaluatable
+        fills = simulator.process_bar(bar_day2)
+        # replacement limit=88, bar_day2 low=95 — should not fill
+        assert simulator.get_trade(replacement.orderId) is not None
+
 
 # endregion

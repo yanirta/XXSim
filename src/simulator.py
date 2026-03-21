@@ -375,16 +375,12 @@ class Simulator:
         naive_bar_time = bar_time.replace(tzinfo=None) if bar_time.tzinfo else bar_time
         return naive_bar_time >= gat
 
-    def _cancel_trade(self, order_id: int, trade: Trade, reason: str) -> None:
-        """Cancel a trade and its OCA siblings and unsubmitted children.
+    def _collect_cancel_subtree(self, order_id: int, trade: Trade, reason: str) -> list[Trade]:
+        """Cancel a trade and all its children (state only, no events).
 
-        This is the single cancellation path used by all cancel scenarios:
-        user cancel, OCA sibling fill, DAY expiry, GTD expiry.
-
-        Args:
-            order_id: ID of the order to cancel
-            trade: The Trade object to cancel
-            reason: Human-readable cancellation reason for log
+        Removes each trade from _active_trades, updates status and log, then
+        recurses into children. Returns all affected Trade objects so the caller
+        can emit events after the full cancel tree is resolved.
         """
         self._active_trades.pop(order_id, None)
         trade.orderStatus.status = TradeStatus.Cancelled
@@ -393,10 +389,7 @@ class Simulator:
             status=TradeStatus.Cancelled,
             message=reason,
         ))
-        self._events.emit('cancel', trade)
-        self._events.emit('status', trade)
-
-        # Cancel children — recurse for active ones, create ephemeral Trade for unsubmitted
+        result = [trade]
         for child in trade.order.children:
             if child.permId == 0:
                 child.permId = child.orderId
@@ -411,38 +404,69 @@ class Simulator:
                     ),
                     log=[],
                 )
-            self._cancel_trade(child.orderId, child_trade, f'Parent order {order_id} cancelled - {reason}')
+            result.extend(self._collect_cancel_subtree(
+                child.orderId, child_trade, f'Parent order {order_id} cancelled - {reason}'
+            ))
+        return result
 
+    def _cancel_trade(self, order_id: int, trade: Trade, reason: str) -> None:
+        """Cancel a trade, its children, and all OCA siblings.
 
-        # Cancel OCA siblings
+        This is the single cancellation path used by all cancel scenarios:
+        user cancel, OCA sibling fill, DAY expiry, GTD expiry.
+
+        OCA siblings are cancelled in two passes: all state mutations first,
+        then all events. This ensures callbacks see a fully resolved group —
+        new orders submitted into the same OCA group from within a callback
+        are not caught by the already-completed cancellation loop.
+
+        Args:
+            order_id: ID of the order to cancel
+            trade: The Trade object to cancel
+            reason: Human-readable cancellation reason for log
+        """
+        cancelled = self._collect_cancel_subtree(order_id, trade, reason)
+        for t in cancelled:
+            self._events.emit('cancel', t)
+            self._events.emit('status', t)
+
+        # Cancel OCA siblings — two-pass so callbacks see a resolved group
         oca_group = trade.order.ocaGroup
         if oca_group:
-            siblings = self._oca_groups.get(oca_group, set())
+            siblings = self._oca_groups.pop(oca_group, set())
+            oca_cancelled: list[Trade] = []
             for sibling_id in list(siblings):
                 if sibling_id != order_id and sibling_id in self._active_trades:
-                    sibling_trade = self._active_trades.pop(sibling_id)
-                    sibling_trade.orderStatus.status = TradeStatus.Cancelled
-                    sibling_trade.log.append(TradeLogEntry(
-                        time=self._time_provider.now(),
-                        status=TradeStatus.Cancelled,
-                        message=f'OCA sibling {order_id} cancelled: {reason}',
+                    sibling_trade = self._active_trades[sibling_id]
+                    oca_cancelled.extend(self._collect_cancel_subtree(
+                        sibling_id, sibling_trade, f'OCA sibling {order_id} cancelled: {reason}'
                     ))
-                    self._events.emit('cancel', sibling_trade)
-                    self._events.emit('status', sibling_trade)
-            self._oca_groups.pop(oca_group, None)
+            for t in oca_cancelled:
+                self._events.emit('cancel', t)
+                self._events.emit('status', t)
 
     def _cancel_oca_siblings(self, filled_trade: Trade) -> None:
-        """Cancel all other orders in the same OCA group after a fill."""
+        """Cancel all other orders in the same OCA group after a fill.
+
+        Two-pass: all state mutations first, then all events. This ensures
+        callbacks see a fully resolved group — new orders submitted into the
+        same OCA group from within a callback are not caught by the
+        already-completed cancellation loop.
+        """
         order = filled_trade.order
         if not order.ocaGroup:
             return
-        siblings = self._oca_groups.get(order.ocaGroup, set())
+        siblings = self._oca_groups.pop(order.ocaGroup, set())
+        oca_cancelled: list[Trade] = []
         for sibling_id in list(siblings):
             if sibling_id != order.orderId and sibling_id in self._active_trades:
                 sibling_trade = self._active_trades[sibling_id]
-                self._cancel_trade(sibling_id, sibling_trade, f'OCO: order {order.orderId} filled')
-        # Clean up the group
-        self._oca_groups.pop(order.ocaGroup, None)
+                oca_cancelled.extend(self._collect_cancel_subtree(
+                    sibling_id, sibling_trade, f'OCO: order {order.orderId} filled'
+                ))
+        for t in oca_cancelled:
+            self._events.emit('cancel', t)
+            self._events.emit('status', t)
 
     def run(self, bars) -> None:
         """Process a sequence of bars.
