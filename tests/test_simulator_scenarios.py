@@ -9,14 +9,15 @@ from datetime import datetime
 from xtrading_models import BarData, LimitOrder
 from xtrading_models.order import TrailingStopMarket
 
-from simulator import Simulator
+from simulator import Simulator, SimulatorConfig
 
 
 # region Fixtures
 
 @pytest.fixture
 def simulator(time_provider):
-    return Simulator(time_provider)
+    Simulator.static_init(time_provider, SimulatorConfig())
+    return Simulator()
 
 
 @pytest.fixture

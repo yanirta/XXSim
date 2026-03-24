@@ -2,7 +2,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Callable, Literal, Optional
+from typing import Callable, Iterator, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,22 @@ class Simulator:
     - Callback notifications (on_fill, on_cancel, on_status)
 
     Example:
-        sim = Simulator(time_provider)
+        Simulator.static_init(time_provider, SimulatorConfig())
+        sim = Simulator()
         sim.on_fill(lambda trade, fill: print(f"Filled: {fill.execution.price}"))
         trade = sim.submit_order(MarketOrder(action='BUY', totalQuantity=100))
         fills = sim.process_bar(bar)
     """
 
-    def __init__(self, time_provider: TimeProvider, config: Optional[SimulatorConfig] = None):
-        self._time_provider = time_provider
-        self._config = config or SimulatorConfig()
+    _time_provider: TimeProvider
+    _config: SimulatorConfig
+
+    @classmethod
+    def static_init(cls, time_provider: TimeProvider, config: SimulatorConfig) -> None:
+        cls._time_provider = time_provider
+        cls._config = config
+
+    def __init__(self):
         self._engine = ExecutionEngine(
             ExecutionConfig(
                 commission_per_fill=self._config.commission_per_fill,
@@ -468,17 +475,28 @@ class Simulator:
             self._events.emit(SimulatorEvent.cancel, t)
             self._events.emit(SimulatorEvent.status, t)
 
-    def run(self, bars) -> None:
-        """Process a sequence of bars.
-
-        Convenience method that iterates through bars and calls process_bar
-        for each. Use on_bar callback to react to each bar.
+    def process_bars(
+        self,
+        bars: list[BarData],
+        yield_predicate: Callable[[BarData], bool] = lambda bar: True,
+    ) -> Iterator[list[Fill]]:
+        """Process a sequence of bars, accumulating fills and yielding when predicate fires.
 
         Args:
             bars: Iterable of BarData objects
+            yield_predicate: Called after each bar; yields accumulated fills when True.
+                             Defaults to firing every bar.
+
+        Yields:
+            Accumulated fills since the last yield
         """
+        accumulated: list[Fill] = []
         for bar in bars:
-            self.process_bar(bar)
+            self._time_provider.set_time(bar.date)
+            accumulated.extend(self.process_bar(bar))
+            if yield_predicate(bar):
+                yield accumulated
+                accumulated = []
 
     def _expire_day_orders(self, current_date: date) -> None:
         """Expire DAY orders submitted on a prior trading day.

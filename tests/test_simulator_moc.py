@@ -5,7 +5,7 @@ from datetime import datetime
 from xtrading_models import BarData
 from xtrading_models.order import MarketOnCloseOrder, Order
 
-from simulator import Simulator
+from simulator import Simulator, SimulatorConfig
 
 
 # region Helpers
@@ -62,11 +62,16 @@ def moc_gtd_order(action: str = "SELL", qty: int = 10, gtd: str = "") -> Order:
 # endregion
 
 
+@pytest.fixture
+def sim(time_provider):
+    Simulator.static_init(time_provider, SimulatorConfig())
+    return Simulator()
+
+
 class TestMocDay:
     """MOC + DAY: fills at close of submission day; expires next day if unfilled."""
 
-    def test_moc_day_fills_on_close_bar(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_day_fills_on_close_bar(self, sim):
         order = moc_order()
         sim.submit_order(order)
         close_bar = make_close_bar(datetime(2024, 1, 15, 16, 0))
@@ -74,16 +79,14 @@ class TestMocDay:
         assert len(fills) == 1
         assert fills[0].execution.price == 100.0
 
-    def test_moc_day_does_not_fill_on_intraday_bar(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_day_does_not_fill_on_intraday_bar(self, sim):
         order = moc_order()
         sim.submit_order(order)
         bar = make_intraday_bar(datetime(2024, 1, 15, 9, 30))
         fills = sim.process_bar(bar)
         assert len(fills) == 0
 
-    def test_moc_day_expires_next_day_if_not_filled(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_day_expires_next_day_if_not_filled(self, sim):
         order = moc_order()
         sim.submit_order(order)
         # Intraday bar day 1 — no fill
@@ -99,15 +102,13 @@ class TestMocDay:
 class TestMocGtc:
     """MOC + GTC (no GAT): fills at next close bar; does NOT expire across days."""
 
-    def test_moc_gtc_fills_at_close(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtc_fills_at_close(self, sim):
         order = moc_gtc_order()
         sim.submit_order(order)
         fills = sim.process_bar(make_close_bar(datetime(2024, 1, 15, 16, 0)))
         assert len(fills) == 1
 
-    def test_moc_gtc_survives_day_change(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtc_survives_day_change(self, sim):
         order = moc_gtc_order()
         sim.submit_order(order)
         # Intraday bar day 1 — no fill
@@ -116,8 +117,7 @@ class TestMocGtc:
         sim.process_bar(make_intraday_bar(datetime(2024, 1, 16, 9, 30)))
         assert len(sim.get_active_trades()) == 1
 
-    def test_moc_gtc_fills_on_day2_close(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtc_fills_on_day2_close(self, sim):
         order = moc_gtc_order()
         sim.submit_order(order)
         sim.process_bar(make_intraday_bar(datetime(2024, 1, 15, 9, 30)))
@@ -129,16 +129,14 @@ class TestMocGtc:
 class TestMocGtcGat:
     """MOC + GTC + GAT: skips close bars before GAT date; fills on first close bar >= GAT."""
 
-    def test_moc_gtc_gat_does_not_fill_before_gat(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtc_gat_does_not_fill_before_gat(self, sim):
         order = moc_gtc_gat_order(gat="20240116 00:00:00 US/Eastern")
         sim.submit_order(order)
         # Close bar on day 0 (Jan 15) — before GAT
         fills = sim.process_bar(make_close_bar(datetime(2024, 1, 15, 16, 0)))
         assert len(fills) == 0
 
-    def test_moc_gtc_gat_fills_on_gat_date_close(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtc_gat_fills_on_gat_date_close(self, sim):
         order = moc_gtc_gat_order(gat="20240116 00:00:00 US/Eastern")
         sim.submit_order(order)
         # Pre-GAT close — no fill
@@ -147,8 +145,7 @@ class TestMocGtcGat:
         fills = sim.process_bar(make_close_bar(datetime(2024, 1, 16, 16, 0)))
         assert len(fills) == 1
 
-    def test_moc_gtc_gat_order_stays_active_across_days(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtc_gat_order_stays_active_across_days(self, sim):
         order = moc_gtc_gat_order(gat="20240117 00:00:00 US/Eastern")
         sim.submit_order(order)
         # Jan 15 + Jan 16 — both before GAT, still active
@@ -163,8 +160,7 @@ class TestMocGtcGat:
 class TestMocGtd:
     """MOC + GTD: fills at close before goodTillDate; expires if GTD passed without fill."""
 
-    def test_moc_gtd_fills_before_gtd(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtd_fills_before_gtd(self, sim):
         order = moc_gtd_order(gtd="20240116 16:00:00 US/Eastern")
         order.tif = "GTD"
         order.goodTillDate = "20240116 16:00:00 US/Eastern"
@@ -172,8 +168,7 @@ class TestMocGtd:
         fills = sim.process_bar(make_close_bar(datetime(2024, 1, 15, 16, 0)))
         assert len(fills) == 1
 
-    def test_moc_gtd_expires_after_gtd(self, time_provider):
-        sim = Simulator(time_provider)
+    def test_moc_gtd_expires_after_gtd(self, sim):
         order = moc_gtd_order(gtd="20240114")
         sim.submit_order(order)
         cancelled = []
@@ -194,9 +189,8 @@ class TestMocOcaIntegration:
         parent.add_child(child)
         return parent, child
 
-    def test_parent_fills_day0_child_activates_day_n(self, time_provider):
+    def test_parent_fills_day0_child_activates_day_n(self, sim):
         """Parent MOC BUY fills on day 0; GTC+GAT child activates and fills on day N."""
-        sim = Simulator(time_provider)
         oca_group = "exit_1"
         parent, child = self._make_parent_with_gat_child(
             gat="20240117 00:00:00 US/Eastern", oca_group=oca_group
@@ -218,9 +212,8 @@ class TestMocOcaIntegration:
         day2_fills = sim.process_bar(make_close_bar(datetime(2024, 1, 17, 16, 0)))
         assert any(f.execution.orderId == child.orderId for f in day2_fills)
 
-    def test_signal_exit_fires_before_gat_cancels_child(self, time_provider):
+    def test_signal_exit_fires_before_gat_cancels_child(self, sim):
         """Signal exit with same OCA group fires before GAT → child is cancelled."""
-        sim = Simulator(time_provider)
         oca_group = "exit_1"
         parent, child = self._make_parent_with_gat_child(
             gat="20240120 00:00:00 US/Eastern", oca_group=oca_group

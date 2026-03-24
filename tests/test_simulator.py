@@ -11,7 +11,7 @@ from xtrading_models import (
 )
 from xtrading_models.order import StopLimitOrder, TrailingStopMarket
 
-from simulator import Simulator
+from simulator import Simulator, SimulatorConfig
 
 
 # region Test Fixtures
@@ -19,7 +19,8 @@ from simulator import Simulator
 @pytest.fixture
 def simulator(time_provider):
     """Create a fresh Simulator instance."""
-    return Simulator(time_provider)
+    Simulator.static_init(time_provider, SimulatorConfig())
+    return Simulator()
 
 
 @pytest.fixture
@@ -1075,12 +1076,13 @@ class TestOnBarCallback:
 
         assert fills_count == [0, 1]
 
-    def test_run_processes_all_bars(self, simulator, bar_day1, bar_day2, bar_day3):
-        """run() processes all bars in sequence."""
+    def test_process_bars_processes_all_bars(self, simulator, bar_day1, bar_day2, bar_day3):
+        """process_bars() processes all bars in sequence."""
         bars_seen = []
 
         simulator.on_bar(lambda bar, _fills: bars_seen.append(bar))
-        simulator.run([bar_day1, bar_day2, bar_day3])
+        for _ in simulator.process_bars([bar_day1, bar_day2, bar_day3]):
+            pass
 
         assert len(bars_seen) == 3
         assert bars_seen[0] is bar_day1
@@ -1102,18 +1104,8 @@ class TestOnBarCallback:
         assert len(bars_received) == 1
         assert bars_received[0] is bar_day1
 
-    def test_run_with_strategy(self, simulator):
-        """Full backtest simulation using run() and on_bar."""
-        fills_received = []
-
-        def strategy(_bar, fills):
-            fills_received.extend(fills)
-            # Buy on first bar
-            if len(fills_received) == 0 and len(simulator.get_active_trades()) == 0:
-                simulator.submit_order(MarketOrder(action='BUY', totalQuantity=100))
-
-        simulator.on_bar(strategy)
-
+    def test_process_bars_with_strategy(self, simulator):
+        """Full backtest simulation using process_bars."""
         bars = [
             BarData(date=datetime(2024, 1, 15, 9, 30), open=100.0,
                     high=105.0, low=95.0, close=102.0, volume=1000),
@@ -1121,7 +1113,12 @@ class TestOnBarCallback:
                     high=107.0, low=100.0, close=105.0, volume=1000),
         ]
 
-        simulator.run(bars)
+        fills_received = []
+        for fills in simulator.process_bars(bars):
+            fills_received.extend(fills)
+            # Buy on first bar (no fills yet, no active trades)
+            if len(fills_received) == 0 and len(simulator.get_active_trades()) == 0:
+                simulator.submit_order(MarketOrder(action='BUY', totalQuantity=100))
 
         # Order submitted on bar 1, filled on bar 2
         assert len(fills_received) == 1
@@ -1779,5 +1776,87 @@ class TestOCOOrders:
         # replacement limit=88, bar_day2 low=95 — should not fill
         assert simulator.get_trade(replacement.orderId) is not None
 
+
+# endregion
+
+# region process_bars Tests
+
+class TestProcessBars:
+    """Tests for the process_bars generator method."""
+
+    def test_yields_fills_per_bar_by_default(self, simulator, bar_day1, bar_day2, bar_day3):
+        """Default predicate yields once per bar."""
+        results = list(simulator.process_bars([bar_day1, bar_day2, bar_day3]))
+        assert len(results) == 3
+
+    def test_empty_bars_yields_nothing(self, simulator):
+        """Empty input produces no yields."""
+        assert list(simulator.process_bars([])) == []
+
+    def test_fills_match_process_bar(self, simulator, bar_day1, bar_day2):
+        """Fills yielded match what process_bar would return for the same orders."""
+        order = MarketOrder(action='BUY', totalQuantity=100)
+        simulator.submit_order(order)
+
+        fills_day1, fills_day2 = simulator.process_bars([bar_day1, bar_day2])
+
+        assert len(fills_day1) == 1
+        assert fills_day1[0].execution.price == bar_day1.open
+        assert fills_day2 == []
+
+    def test_orders_submitted_mid_iteration_fill_next_bar(self, simulator, bar_day1, bar_day2):
+        """Orders submitted during iteration fill on the subsequent bar."""
+        order = LimitOrder(action='BUY', totalQuantity=50, price=101.0)
+
+        results = []
+        for fills in simulator.process_bars([bar_day1, bar_day2]):
+            results.append(fills)
+            if len(results) == 1:
+                # bar_day2 open=102, high=110, low=100 — limit 101 will fill
+                simulator.submit_order(order)
+
+        assert results[0] == []
+        assert len(results[1]) == 1
+        assert results[1][0].execution.orderId == order.orderId
+
+    def test_no_fills_when_no_orders(self, simulator, bar_day1, bar_day2):
+        """Bars with no active orders yield empty fill lists."""
+        for fills in simulator.process_bars([bar_day1, bar_day2]):
+            assert fills == []
+
+    def test_is_lazy_generator(self, simulator, bar_day1, bar_day2, bar_day3):
+        """process_bars returns a generator, not a pre-computed list."""
+        import types
+        assert isinstance(simulator.process_bars([bar_day1, bar_day2, bar_day3]), types.GeneratorType)
+
+    def test_yield_predicate_accumulates_fills(self, simulator, bar_day1, bar_day2, bar_day3):
+        """Fills accumulate across bars until predicate fires."""
+        order1 = MarketOrder(action='BUY', totalQuantity=100)
+        order2 = MarketOrder(action='BUY', totalQuantity=50)
+        simulator.submit_order(order1)
+        simulator.submit_order(order2)
+
+        # Predicate fires only on bar_day3 (last bar)
+        results = list(simulator.process_bars(
+            [bar_day1, bar_day2, bar_day3],
+            yield_predicate=lambda bar: bar is bar_day3,
+        ))
+
+        assert len(results) == 1
+        assert len(results[0]) == 2  # both fills accumulated
+
+    def test_yield_predicate_fires_on_close_bar(self, simulator, bar_day1, bar_day2):
+        """Predicate based on is_close_bar yields only at end of day."""
+        order = MarketOrder(action='BUY', totalQuantity=100)
+        simulator.submit_order(order)
+
+        bar_day1_close = bar_day1.model_copy(update={'is_close_bar': True})
+        results = list(simulator.process_bars(
+            [bar_day1, bar_day1_close, bar_day2],
+            yield_predicate=lambda bar: bar.is_close_bar,
+        ))
+
+        assert len(results) == 1
+        assert len(results[0]) == 1  # fill from bar_day1, accumulated through bar_day1_close
 
 # endregion

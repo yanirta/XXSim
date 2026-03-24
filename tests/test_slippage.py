@@ -551,7 +551,8 @@ class TestSimulatorDriftConfig:
             std_divider=50,
             random_seed=999,
         )
-        sim = Simulator(time_provider, config)
+        Simulator.static_init(time_provider, config)
+        sim = Simulator()
 
         assert sim._engine._config.fill_drift_model == "normal"
         assert sim._engine._config.std_divider == 50
@@ -561,7 +562,8 @@ class TestSimulatorDriftConfig:
         """Default SimulatorConfig should have no drift."""
         from simulator import Simulator, SimulatorConfig
 
-        sim = Simulator(time_provider)
+        Simulator.static_init(time_provider, SimulatorConfig())
+        sim = Simulator()
 
         assert sim._engine._config.fill_drift_model == "none"
 
