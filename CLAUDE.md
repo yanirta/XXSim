@@ -52,7 +52,7 @@ fills = sim.process_bar(bar)
 ### TIF Support
 
 - **GTC**: Never expires
-- **DAY**: Expires on date change (after matching, so orders get one bar attempt)
+- **DAY**: Expires when the current bar's date is after the order's first `Submitted` log entry date. MOC orders start as `PreSubmitted` (see below), so their "submitted date" is stamped on the first `process_bar` call — allowing orders queued after close to survive until the next close bar.
 - **GTD**: Expires after goodTillDate
 - **GAT**: goodAfterTime — order not active until specified time
 
@@ -62,13 +62,16 @@ Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. O
 
 ### Bar Processing Algorithm
 
+0. Activate `PreSubmitted` orders: transition to `Submitted`, stamping the bar's date as submission date (used for DAY expiry)
 1. Expire GTD orders past goodTillDate
 2. Sort active orders by distance to bar.open (OCO priority)
 3. For each active order (skip if OCO-cancelled, skip if GAT not yet active):
    a. Execute via ExecutionEngine
    b. If filled: update Trade, cancel OCO siblings, submit bracket children
    c. If not filled: keep (state mutated in-place)
-4. Expire unfilled DAY orders if date changed
+4. Expire unfilled DAY orders if date changed (compares bar date to first `Submitted` log entry)
+
+**MOC PreSubmitted lifecycle:** MOC orders are submitted with status `PreSubmitted`. On the first `process_bar` call they activate to `Submitted` (dated that bar). This means a MOC order submitted after the day's last bar sees its first bar the next morning and fills at that day's close — matching IB's real behavior.
 
 ### Test Data
 
