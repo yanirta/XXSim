@@ -23,6 +23,16 @@ XXSim reconstructs a plausible intra-bar price path from OHLC data and evaluates
 - Limit-on-Close (LOC)
 - Market-if-Touched (MIT)
 
+## Order modifiers
+Fields that modify order behavior without changing the order type:
+
+| Field | Description |
+|---|---|
+| `tif` | Time-in-force: `GTC` (default), `DAY` (expires on date change), `GTD` (expires after `goodTillDate`) |
+| `goodTillDate` | Expiry datetime for `GTD` orders — format `'%Y%m%d %H:%M:%S <timezone>'` |
+| `goodAfterTime` | Order inactive until this datetime — format `'%Y%m%d %H:%M:%S <timezone>'`, timezone is mandatory |
+| `ocaGroup` | One-Cancels-All group name — when one order in the group fills, the rest are cancelled |
+
 ## Execution algorithm assumptions
 - **No partial fills** — orders fill entirely or not at all
 - **Aggressive approach** — order fills if there is any plausible price path through the bar that would trigger it
@@ -34,7 +44,6 @@ XXSim reconstructs a plausible intra-bar price path from OHLC data and evaluates
   - `fill_drift_model="normal"`: drift drawn from `N(0, bar_range / std_divider)`
   - Result always clamped to `[bar.low, bar.high]`
   - Use `random_seed` for reproducible backtests
-- **`goodAfterTime` format**: `'%Y%m%d %H:%M:%S'` with optional timezone suffix, e.g. `'20260115 09:30:00 US/Eastern'`
 
 ## Installation
 
@@ -95,9 +104,6 @@ trade = sim.submit_order(entry)
 ```
 
 The Simulator supports:
-- **TIF**: `GTC`, `DAY` (expires on date change), `GTD` (expires after date)
-- **GAT**: `goodAfterTime` — order inactive until the specified datetime
-- **OCO**: `ocaGroup` — when one order fills, linked siblings are cancelled
 - **Bracket orders**: child orders activate when parent fills
 - **Callbacks**: `on_fill`, `on_cancel`, `on_status`, `on_bar`
 - **`SimulatorEvent`**: enum of all event names (`fill`, `cancel`, `status`, `bar`) — use instead of raw strings when subscribing via `EventEmitter` directly

@@ -1,6 +1,6 @@
 [project]
 name = "XXSim"
-version = "0.17.2"
+version = "0.17.3"
 description = "Exchange Execution Simulator - stock exchange single bar execution simulator"
 authors = [{name = "Yanir Taflev", email = "yanirta+xxsim@gmail.com"}]
 license = {text = "MIT"}
