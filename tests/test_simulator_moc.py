@@ -69,7 +69,36 @@ def sim(time_provider):
 
 
 class TestMocDay:
-    """MOC + DAY: fills at close of submission day; expires next day if unfilled."""
+    """MOC + DAY: starts PreSubmitted; activates on first bar; fills at that day's close;
+    expires the following day if not filled."""
+
+    def test_moc_day_initial_status_is_presubmitted(self, sim):
+        order = moc_order()
+        trade = sim.submit_order(order)
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.PreSubmitted
+        assert trade.log[0].status == TradeStatus.PreSubmitted
+
+    def test_moc_day_activates_to_submitted_on_first_bar(self, sim):
+        order = moc_order()
+        trade = sim.submit_order(order)
+        sim.process_bar(make_intraday_bar(datetime(2024, 1, 15, 9, 30)))
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.Submitted
+        assert trade.log[-1].status == TradeStatus.Submitted
+        assert trade.log[-1].time.date() == datetime(2024, 1, 15).date()
+
+    def test_moc_day_submitted_after_close_fills_next_close(self, sim):
+        """MOC queued after the day's last bar survives to fill at the next day's close."""
+        order = moc_order()
+        sim.submit_order(order)
+        # Simulate bar stream: Jan 15 close already passed, order submitted after it
+        # First bar seen is Jan 16 intraday → activates Submitted dated Jan 16
+        sim.process_bar(make_intraday_bar(datetime(2024, 1, 16, 9, 30)))
+        # Jan 16 close bar — should fill
+        fills = sim.process_bar(make_close_bar(datetime(2024, 1, 16, 16, 0)))
+        assert len(fills) == 1
+        assert fills[0].execution.price == 100.0
 
     def test_moc_day_fills_on_close_bar(self, sim):
         order = moc_order()

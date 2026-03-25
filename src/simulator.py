@@ -76,16 +76,19 @@ class Simulator:
         if order.permId == 0:
             order.permId = order.orderId
 
+        # MOC orders start as PreSubmitted: they can only fill at the next close bar,
+        # so they must not be treated as a same-day DAY order until first processed.
+        initial_status = TradeStatus.PreSubmitted if order.orderType == 'MOC' else TradeStatus.Submitted
         trade = Trade(
             order=order,
             orderStatus=OrderStatus(
                 orderId=order.orderId,
-                status=TradeStatus.Submitted,
+                status=initial_status,
                 remaining=order.totalQuantity,
             ),
             log=[TradeLogEntry(
                 time=self._time_provider.now(),
-                status=TradeStatus.Submitted,
+                status=initial_status,
                 message='Order submitted',
             )],
         )
@@ -170,6 +173,7 @@ class Simulator:
         """Process a bar against all active orders.
 
         Algorithm:
+        0. Activate PreSubmitted orders → Submitted (MOC orders queued after last bar)
         1. Expire GTD orders past goodTillDate
         2. Expire DAY orders if date changed (before matching — DAY orders
            must not survive into the next trading day)
@@ -189,6 +193,19 @@ class Simulator:
         """
         current_date = bar.date.date() if isinstance(bar.date, datetime) else bar.date
         date_changed = self._last_bar_date is not None and current_date != self._last_bar_date
+
+        # 0. Activate PreSubmitted orders: transition to Submitted on first bar they see.
+        #    This gives MOC orders a submission date of the bar day they first encounter,
+        #    so DAY expiry is measured from that day rather than the evening they were queued.
+        for trade in list(self._active_trades.values()):
+            if trade.orderStatus.status == TradeStatus.PreSubmitted:
+                trade.orderStatus.status = TradeStatus.Submitted
+                trade.log.append(TradeLogEntry(
+                    time=bar.date,
+                    status=TradeStatus.Submitted,
+                    message='Order submitted',
+                ))
+                self._events.emit(SimulatorEvent.status, trade)
 
         # 1. Expire GTD orders past goodTillDate
         self._expire_gtd_orders(current_date)
@@ -499,17 +516,20 @@ class Simulator:
                 accumulated = []
 
     def _expire_day_orders(self, current_date: date) -> None:
-        """Expire DAY orders submitted on a prior trading day.
+        """Expire DAY orders whose first Submitted log entry is from a prior day.
 
-        Orders submitted today (e.g. during execute() before exec bars run)
-        are not expired — only orders left over from a previous day.
+        Uses the first Submitted entry (not log[0]) so that MOC orders, which start
+        as PreSubmitted and transition to Submitted on their first bar, are judged
+        by the day they entered the market rather than the evening they were queued.
         """
         trades_to_expire = [
             (order_id, trade)
             for order_id, trade in self._active_trades.items()
             if trade.order.tif == 'DAY'
-            and trade.log
-            and trade.log[0].time.date() < current_date
+            and any(
+                e.status == TradeStatus.Submitted and e.time.date() < current_date
+                for e in trade.log
+            )
         ]
 
         for order_id, trade in trades_to_expire:
