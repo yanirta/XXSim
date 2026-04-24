@@ -521,16 +521,27 @@ class Simulator:
         Uses the first Submitted entry (not log[0]) so that MOC orders, which start
         as PreSubmitted and transition to Submitted on their first bar, are judged
         by the day they entered the market rather than the evening they were queued.
+
+        Orders with goodAfterTime are not expired until that date has passed —
+        they are dormant until then and only become a "live DAY order" on the
+        goodAfterTime date.
         """
-        trades_to_expire = [
-            (order_id, trade)
-            for order_id, trade in self._active_trades.items()
-            if trade.order.tif == 'DAY'
-            and any(
+        trades_to_expire = []
+        for order_id, trade in self._active_trades.items():
+            order = trade.order
+            if order.tif != 'DAY':
+                continue
+            if not any(
                 e.status == TradeStatus.Submitted and e.time.date() < current_date
                 for e in trade.log
-            )
-        ]
+            ):
+                continue
+            if order.goodAfterTime:
+                gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
+                gat_date = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').date()
+                if gat_date >= current_date:
+                    continue
+            trades_to_expire.append((order_id, trade))
 
         for order_id, trade in trades_to_expire:
             self._cancel_trade(order_id, trade, 'DAY order expired')

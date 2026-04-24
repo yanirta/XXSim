@@ -701,6 +701,58 @@ class TestTIFExpiration:
         # Trade still active
         assert simulator.get_trade(order.orderId) is trade
 
+    def test_day_order_with_good_after_time_not_expired_before_gat_date(self, simulator):
+        """DAY order with goodAfterTime is not expired until the GAT date has passed.
+
+        Regression: MOC bracket children (max-hold exits) are DAY orders submitted
+        with goodAfterTime = N days in the future. They were incorrectly cancelled
+        the next morning because _expire_day_orders ignored goodAfterTime.
+        """
+        # Day 1: submit order, Day 2: must still be active (GAT not reached), Day 3: active (GAT date)
+        order = LimitOrder(
+            action='BUY',
+            totalQuantity=100,
+            price=50.0,
+            tif='DAY',
+            goodAfterTime='20240117 00:00:00 US/Eastern',  # bar_day3 date
+        )
+        trade = simulator.submit_order(order)
+
+        simulator.process_bar(BarData(date=datetime(2024, 1, 15, 9, 30), open=100.0, high=105.0, low=95.0, close=102.0, volume=1000))
+        assert simulator.get_trade(order.orderId) is trade  # still alive on day 1
+
+        simulator.process_bar(BarData(date=datetime(2024, 1, 16, 9, 30), open=102.0, high=110.0, low=100.0, close=108.0, volume=1200))
+        assert simulator.get_trade(order.orderId) is trade  # still alive on day 2 (GAT not yet reached)
+
+        # Day 3 = GAT date: order becomes active, does not fill (low=106 > limit=50 is wrong, let's use high above limit)
+        # Use price=108 so it fills on day 3
+        order.price = 108.0
+        simulator.process_bar(BarData(date=datetime(2024, 1, 17, 9, 30), open=108.0, high=115.0, low=106.0, close=112.0, volume=1300))
+        assert simulator.get_trade(order.orderId) is None  # filled (not expired)
+        assert trade.orderStatus.status == 'Filled'
+
+    def test_day_order_with_good_after_time_expires_after_gat_date(self, simulator):
+        """DAY order with goodAfterTime is expired the day after its GAT date if it didn't fill."""
+        order = LimitOrder(
+            action='BUY',
+            totalQuantity=100,
+            price=50.0,
+            tif='DAY',
+            goodAfterTime='20240116 00:00:00 US/Eastern',  # bar_day2 date
+        )
+        trade = simulator.submit_order(order)
+
+        simulator.process_bar(BarData(date=datetime(2024, 1, 15, 9, 30), open=100.0, high=105.0, low=95.0, close=102.0, volume=1000))
+        assert simulator.get_trade(order.orderId) is trade  # alive on day 1
+
+        simulator.process_bar(BarData(date=datetime(2024, 1, 16, 9, 30), open=102.0, high=110.0, low=100.0, close=108.0, volume=1200))
+        assert simulator.get_trade(order.orderId) is trade  # alive on GAT date (limit 50 doesn't fill)
+
+        simulator.process_bar(BarData(date=datetime(2024, 1, 17, 9, 30), open=108.0, high=115.0, low=106.0, close=112.0, volume=1300))
+        assert simulator.get_trade(order.orderId) is None  # expired after GAT date passed
+        assert trade.orderStatus.status == 'Cancelled'
+        assert trade.log[-1].message == 'DAY order expired'
+
     # GAT (Good After Time) Tests
 
     def test_gat_order_not_active_before_time(self, simulator):

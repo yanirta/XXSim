@@ -52,7 +52,7 @@ fills = sim.process_bar(bar)
 ### TIF Support
 
 - **GTC**: Never expires
-- **DAY**: Expires when the current bar's date is after the order's first `Submitted` log entry date. MOC orders start as `PreSubmitted` (see below), so their "submitted date" is stamped on the first `process_bar` call — allowing orders queued after close to survive until the next close bar.
+- **DAY**: Expires when the current bar's date is after the order's first `Submitted` log entry date. MOC orders start as `PreSubmitted` (see below), so their "submitted date" is stamped on the first `process_bar` call — allowing orders queued after close to survive until the next close bar. When combined with `goodAfterTime`, a DAY order is not expired until the `goodAfterTime` date has passed — it is dormant until that date, then active as a DAY order on that date, then expired if still unfilled the next day.
 - **GTD**: Expires after goodTillDate
 - **GAT**: goodAfterTime — order not active until specified time
 
