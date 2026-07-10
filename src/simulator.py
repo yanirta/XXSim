@@ -7,7 +7,7 @@ from typing import Callable, Iterator, Literal, Optional
 logger = logging.getLogger(__name__)
 
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
-from execEngine import ExecutionEngine, ExecutionConfig
+from execEngine import ExecutionEngine, ExecutionConfig, order_active_at
 from event_emitter import EventEmitter, SimulatorEvent
 
 
@@ -235,7 +235,7 @@ class Simulator:
                 continue
 
             # Skip if goodAfterTime not yet reached
-            if not self._is_order_active(trade.order, bar.date):
+            if not order_active_at(trade.order, bar.date):
                 continue
 
             fills = self._engine.execute(trade.order, bar)
@@ -384,20 +384,6 @@ class Simulator:
             return 0.0
         price = order.price or bar.open
         return abs(price - bar.open)
-
-    def _is_order_active(self, order: Order, bar_time: datetime) -> bool:
-        """Check if order is active based on goodAfterTime.
-
-        Expected format: '%Y%m%d %H:%M:%S' with optional timezone suffix,
-        e.g. '20260115 09:30:00 US/Eastern'. Raises ValueError on invalid input.
-        """
-        if not order.goodAfterTime:
-            return True
-        # Strip optional timezone suffix (e.g. 'US/Eastern')
-        gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
-        gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S')
-        naive_bar_time = bar_time.replace(tzinfo=None) if bar_time.tzinfo else bar_time
-        return naive_bar_time >= gat
 
     def _collect_cancel_subtree(self, order_id: int, trade: Trade, reason: str) -> list[Trade]:
         """Cancel a trade and all its children (state only, no events).

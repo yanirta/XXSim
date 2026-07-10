@@ -3,7 +3,7 @@ import pytest
 from datetime import datetime
 
 from xtrading_models import BarData
-from xtrading_models.order import MarketOnCloseOrder, Order
+from xtrading_models.order import LimitOrder, MarketOnCloseOrder, Order
 
 from simulator import Simulator, SimulatorConfig
 
@@ -266,3 +266,48 @@ class TestMocOcaIntegration:
         assert any(oid == signal_exit.orderId or True for oid in [signal_exit.orderId])
         # Child should no longer be active
         assert sim.get_trade(child.orderId) is None
+
+
+def make_close_bar_hl(dt: datetime, close: float, high: float, low: float) -> BarData:
+    return BarData(date=dt, open=close, high=high, low=low, close=close, volume=1000, is_close_bar=True)
+
+
+class TestBracketChildGoodAfterTime:
+    """A bracket child with a future goodAfterTime must NOT fill on the parent's
+    fill bar even when the price would trigger it — it fills on/after its GAT.
+
+    Regression for the AlphaNexus Harlev bug: a LMT take-profit child was filling
+    on the entry MOC's own close bar, so entry and exit shared a timestamp."""
+
+    def _parent_with_lmt_child(self, gat: str) -> tuple[Order, Order]:
+        parent = moc_order(action="BUY")
+        child = LimitOrder(action="SELL", totalQuantity=10, price=102.0)
+        child.tif = "GTC"
+        child.goodAfterTime = gat
+        parent.add_child(child)
+        return parent, child
+
+    def test_lmt_child_does_not_fill_on_parent_bar(self, sim):
+        """Parent MOC fills day0 at close 100 on a bar whose high (103) reaches the
+        102 target — the child must stay pending because its GAT (day2) is future."""
+        parent, child = self._parent_with_lmt_child(gat="20240117 00:00:00 US/Eastern")
+        sim.submit_order(parent)
+
+        day0_fills = sim.process_bar(make_close_bar_hl(datetime(2024, 1, 15, 16, 0), close=100.0, high=103.0, low=99.0))
+        assert any(f.execution.orderId == parent.orderId for f in day0_fills)
+        # The take-profit must NOT have filled on the entry bar.
+        assert not any(f.execution.orderId == child.orderId for f in day0_fills)
+        assert sim.get_trade(child.orderId) is not None
+
+    def test_lmt_child_fills_once_gat_reached(self, sim):
+        """Same child fills on the GAT date when the bar reaches the target."""
+        parent, child = self._parent_with_lmt_child(gat="20240117 00:00:00 US/Eastern")
+        sim.submit_order(parent)
+
+        sim.process_bar(make_close_bar_hl(datetime(2024, 1, 15, 16, 0), close=100.0, high=103.0, low=99.0))
+        # Day1 (GAT not yet reached) — still pending even though high reaches target.
+        day1_fills = sim.process_bar(make_close_bar_hl(datetime(2024, 1, 16, 16, 0), close=100.0, high=103.0, low=99.0))
+        assert not any(f.execution.orderId == child.orderId for f in day1_fills)
+        # Day2 (GAT reached) — fills at the limit.
+        day2_fills = sim.process_bar(make_close_bar_hl(datetime(2024, 1, 17, 16, 0), close=100.0, high=103.0, low=99.0))
+        assert any(f.execution.orderId == child.orderId for f in day2_fills)

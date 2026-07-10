@@ -1,11 +1,30 @@
 """Order execution engine for OHLCV-based backtesting."""
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional, Literal
 
 import numpy as np
 
 from xtrading_models import Order, Fill, Execution, CommissionReport, BarData
 from xtrading_models.order import StopOrder, StopLimitOrder, TrailingStopMarket
+
+
+def order_active_at(order: Order, bar_time: datetime) -> bool:
+    """Whether an order's goodAfterTime allows it to act on a bar at bar_time.
+
+    True when the order has no goodAfterTime, otherwise True only once bar_time
+    has reached it. Expected format '%Y%m%d %H:%M:%S' with optional timezone
+    suffix, e.g. '20260115 09:30:00 US/Eastern'. Raises ValueError on bad input.
+
+    The suffix (always exchange-local, matching the bars) is dropped on parse, so
+    the wall-clock is interpreted in bar_time's own timezone — keeping both sides
+    tz-aware (and both naive when bar_time is naive).
+    """
+    if not order.goodAfterTime:
+        return True
+    gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
+    gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').replace(tzinfo=bar_time.tzinfo)
+    return bar_time >= gat
 
 
 @dataclass
@@ -86,6 +105,12 @@ class ExecutionEngine:
         if fills and order.children:
             modified_bar = self._create_modified_bar(bar, fills[0].execution.price)
             for child in order.children:
+                # A child whose goodAfterTime is still in the future must not fill on
+                # the parent's fill bar — the caller submits it as an active trade and
+                # it fills on/after its goodAfterTime. Same-bar bracket children (SL/TP
+                # with no goodAfterTime) are unaffected.
+                if not order_active_at(child, modified_bar.date):
+                    continue
                 # Assumes no oca, if oca exists it will have to be filtered by the caller.
                 child_fills = self.execute(child, modified_bar, parent_id=order.orderId)
                 fills.extend(child_fills)
