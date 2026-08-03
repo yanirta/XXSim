@@ -118,9 +118,15 @@ class Simulator:
         return False
 
     def update_order(self, order_id: int, **kwargs) -> bool:
-        """Update an active order's parameters.
+        """Modify an active order in place, re-arming it as if newly submitted.
 
-        Supports updating: price, totalQuantity, trailingDistance, trailingPercent
+        Supports updating: price, totalQuantity, trailingDistance, trailingPercent.
+        After applying the fields, any *derived* per-order execution state is
+        reset (see _reset_derived_state) so the order re-evaluates from the next
+        bar — for a trailing stop this re-anchors the high-water mark to the
+        current market, matching IB's reset-on-modify. The orderId, permId, OCA
+        membership, and fills so far are preserved. A 'Order modified' log entry
+        is appended so the change is auditable.
 
         Args:
             order_id: ID of order to update
@@ -139,8 +145,26 @@ class Simulator:
             if key in allowed_fields and hasattr(order, key):
                 setattr(order, key, value)
 
+        self._reset_derived_state(order)
+        trade.log.append(TradeLogEntry(
+            time=self._time_provider.now(),
+            status=trade.orderStatus.status,
+            message='Order modified',
+        ))
         self._events.emit(SimulatorEvent.status, trade)
         return True
+
+    @staticmethod
+    def _reset_derived_state(order: Order) -> None:
+        """Clear order-type-specific accumulated execution state so a modified
+        order re-evaluates from the next bar as if freshly submitted. Trailing
+        stops track a high-water mark (extremePrice) and its derived stopPrice;
+        clearing them forces _fill_trail to re-initialise from the current
+        market. Non-trailing order types carry no such state, so this is a
+        no-op for them."""
+        if order.orderType in ('TRAIL', 'TRAIL LIMIT'):
+            setattr(order, 'extremePrice', None)
+            setattr(order, 'stopPrice', None)
 
     # endregion
 

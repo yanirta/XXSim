@@ -25,20 +25,19 @@ Orders follow a recursive parent-child pattern:
 
 The engine is stateless per-bar; order state (e.g., trailing extreme prices) is mutated on the order object itself.
 
-### Simulator API
+### Order Modification (`update_order`)
 
-```python
-sim = Simulator()
-sim.on_fill(lambda trade, fill: print(f"Filled: {fill.execution.price}"))
-sim.on_cancel(lambda trade: print(f"Cancelled: {trade.log[-1].message}"))
+`update_order(order_id, **fields)` modifies an active order **in place** and
+re-arms it as if it had been freshly submitted at that instant:
 
-trade = sim.submit_order(order)
-sim.cancel_order(order_id)
-sim.update_order(order_id, price=new_price)
-sim.get_trade(order_id)
-sim.get_active_trades()
-fills = sim.process_bar(bar)
-```
+- Applies the given fields (`price`, `totalQuantity`, `trailingDistance`,
+  `trailingPercent`).
+- Resets any **derived** per-order execution state (`_reset_derived_state`): for
+  a `TRAIL`/`TRAIL LIMIT` the high-water mark (`extremePrice`) and its derived
+  `stopPrice` are cleared, so the trail re-anchors to the market on the next bar
+  — matching IB's reset-on-modify. Non-trailing types carry no such state (no-op).
+- Preserves `orderId`, `permId`, OCA membership, and prior fills; appends an
+  `Order modified` log entry and emits a status event.
 
 ### Order Type Support
 
@@ -75,9 +74,7 @@ Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. O
 
 ### Test Data
 
-CSV-driven formation tests in `test-data/`:
-- `test-data/stop-limit/` - 8 CSV files x 11 formations = 88 price scenarios
-- `test-data/trailing-stop/` - trailing stop formation data
+CSV-driven formation tests in `test-data/`.
 
 ## Code Conventions
 

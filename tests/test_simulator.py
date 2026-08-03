@@ -1063,6 +1063,62 @@ class TestOrderUpdates:
         result = simulator.update_order(99999, price=100.0)
         assert result is False
 
+    def test_update_resets_trail_derived_state(self, simulator):
+        """Modifying a trailing stop clears its high-water mark so it re-anchors
+        as if newly submitted (matching IB's reset-on-modify)."""
+        order = TrailingStopMarket(action='SELL', totalQuantity=100, trailingPercent=10.0)
+        simulator.submit_order(order)
+        # Run a bar that establishes an extreme/stop.
+        simulator.process_bar(BarData(date=datetime(2024, 1, 15, 9, 30),
+                                      open=100.0, high=110.0, low=100.0, close=105.0, volume=1000))
+        assert order.extremePrice is not None and order.stopPrice is not None
+
+        simulator.update_order(order.orderId, trailingPercent=2.0)
+
+        assert order.trailingPercent == 2.0
+        assert order.extremePrice is None
+        assert order.stopPrice is None
+
+    def test_update_trailing_percent_reanchors_to_new_bar(self, simulator):
+        """After tightening the trail, the stop re-anchors to the post-modify
+        market — the pre-modify high is discarded. With the old 110 high and 10%
+        trail the stop sits at 99 (bar2 never triggers); after reset to a 2%
+        trail anchored to bar2 the stop is ~105.84 and bar2's low (104) fills it."""
+        order = TrailingStopMarket(action='SELL', totalQuantity=100, trailingPercent=10.0)
+        simulator.submit_order(order)
+        simulator.process_bar(BarData(date=datetime(2024, 1, 15, 9, 30),
+                                      open=100.0, high=110.0, low=100.0, close=105.0, volume=1000))
+
+        simulator.update_order(order.orderId, trailingPercent=2.0)
+
+        fills = simulator.process_bar(BarData(date=datetime(2024, 1, 15, 9, 35),
+                                              open=108.0, high=108.0, low=104.0, close=104.0, volume=1000))
+        assert len(fills) == 1
+        assert fills[0].execution.price == pytest.approx(105.84, abs=0.01)
+
+    def test_update_appends_modified_log_entry(self, simulator):
+        """A modify is auditable in the trade log."""
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
+        trade = simulator.submit_order(order)
+        simulator.update_order(order.orderId, price=95.0)
+        assert any(entry.message == 'Order modified' for entry in trade.log)
+
+    def test_update_preserves_oca_membership(self, simulator):
+        """Modifying one OCA member keeps it linked — a sibling fill still
+        cancels the modified order."""
+        stop = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0, ocaGroup='grp')
+        target = LimitOrder(action='SELL', totalQuantity=100, price=110.0, ocaGroup='grp')
+        simulator.submit_order(stop)
+        simulator.submit_order(target)
+
+        simulator.update_order(stop.orderId, price=88.0)
+
+        # Bar trades through the target (110) but not the stop (88) — target fills,
+        # OCA cancels the still-linked stop.
+        simulator.process_bar(BarData(date=datetime(2024, 1, 15, 9, 30),
+                                      open=105.0, high=112.0, low=104.0, close=111.0, volume=1000))
+        assert simulator.get_trade(stop.orderId) is None
+
     def test_update_triggers_callback(self, simulator):
         """Update invokes on_status callback."""
         statuses = []
