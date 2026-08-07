@@ -1,6 +1,6 @@
 """Order execution engine for OHLCV-based backtesting."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Literal
 
 import numpy as np
@@ -9,12 +9,29 @@ from xtrading_models import Order, Fill, Execution, CommissionReport, BarData
 from xtrading_models.order import StopOrder, StopLimitOrder, TrailingStopMarket
 
 
-def order_active_at(order: Order, bar_time: datetime) -> bool:
+def order_active_at(order: Order, bar_time: datetime, bar_duration: timedelta) -> bool:
     """Whether an order's goodAfterTime allows it to act on a bar at bar_time.
 
-    True when the order has no goodAfterTime, otherwise True only once bar_time
-    has reached it. Expected format '%Y%m%d %H:%M:%S' with optional timezone
-    suffix, e.g. '20260115 09:30:00 US/Eastern'. Raises ValueError on bad input.
+    True when the order has no goodAfterTime, otherwise True once the bar
+    *covers* it: either the bar starts at or after goodAfterTime, or
+    goodAfterTime falls strictly inside the bar's span
+    [bar_time, bar_time + bar_duration).
+
+    `bar_time` is the bar's START. Matching only `bar_time >= goodAfterTime`
+    would push any mid-bar activation to the NEXT bar — and when the activation
+    falls inside the session's last bar there is no next bar, so the order would
+    never become active at all. A 1-min NYSE session ends with a bar stamped
+    15:59:00, so a 15:59:30 activation silently never fills while filling
+    normally against a live broker's clock.
+
+    Covering the bar instead is deliberately optimistic: the fill is then
+    evaluated against the whole bar, including the part before the activation
+    instant. Bar-level simulation cannot resolve sub-bar timing, and a missed
+    fill is the more misleading of the two errors.
+
+    Pass `bar_duration=timedelta(0)` for the strict start-only comparison.
+    Expected format '%Y%m%d %H:%M:%S' with optional timezone suffix, e.g.
+    '20260115 09:30:00 US/Eastern'. Raises ValueError on bad input.
 
     The suffix (always exchange-local, matching the bars) is dropped on parse, so
     the wall-clock is interpreted in bar_time's own timezone — keeping both sides
@@ -24,7 +41,7 @@ def order_active_at(order: Order, bar_time: datetime) -> bool:
         return True
     gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
     gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').replace(tzinfo=bar_time.tzinfo)
-    return bar_time >= gat
+    return bar_time >= gat or gat < bar_time + bar_duration
 
 
 @dataclass
@@ -47,6 +64,10 @@ class ExecutionConfig:
 
     # Flat commission per fill in USD
     commission_per_fill: float = 0.0
+
+    # Span of one bar, used to decide whether a goodAfterTime falling inside a
+    # bar activates on it. Zero keeps the strict start-only comparison.
+    bar_duration: timedelta = timedelta(0)
 
 
 class ExecutionEngine:
@@ -109,7 +130,7 @@ class ExecutionEngine:
                 # the parent's fill bar — the caller submits it as an active trade and
                 # it fills on/after its goodAfterTime. Same-bar bracket children (SL/TP
                 # with no goodAfterTime) are unaffected.
-                if not order_active_at(child, modified_bar.date):
+                if not order_active_at(child, modified_bar.date, self._config.bar_duration):
                     continue
                 # Assumes no oca, if oca exists it will have to be filtered by the caller.
                 child_fills = self.execute(child, modified_bar, parent_id=order.orderId)

@@ -14,7 +14,7 @@ pytest tests/test_file.py::test_function -v
 ### Core Components
 
 - **`src/execEngine.py`**: `ExecutionEngine` - recursive order execution against bar data. Handles order type dispatch and parent-child relationships.
-- **`src/simulator.py`**: `Simulator` - wraps ExecutionEngine to manage order lifecycle across multiple bars. `SimulatorConfig` controls fill drift (`fill_drift_model`, `std_divider`) and commission.
+- **`src/simulator.py`**: `Simulator` - wraps ExecutionEngine to manage order lifecycle across multiple bars. `SimulatorConfig` controls fill drift (`fill_drift_model`, `std_divider`), commission, and `bar_duration` (see GAT below).
 
 ### Execution Flow
 
@@ -53,7 +53,18 @@ re-arms it as if it had been freshly submitted at that instant:
 - **GTC**: Never expires
 - **DAY**: Expires when the current bar's date is after the order's first `Submitted` log entry date. MOC orders start as `PreSubmitted` (see below), so their "submitted date" is stamped on the first `process_bar` call — allowing orders queued after close to survive until the next close bar. When combined with `goodAfterTime`, a DAY order is not expired until the `goodAfterTime` date has passed — it is dormant until that date, then active as a DAY order on that date, then expired if still unfilled the next day.
 - **GTD**: Expires after goodTillDate
-- **GAT**: goodAfterTime — order not active until specified time
+- **GAT**: goodAfterTime — order not active until specified time. Bars carry
+  their START time, so `order_active_at(order, bar_time, bar_duration)` treats an
+  order as active once the bar *covers* the activation: `bar_time >= gat` **or**
+  `gat < bar_time + bar_duration`. Set `SimulatorConfig.bar_duration` to the fill
+  resolution's span; the default `timedelta(0)` keeps the strict start-only
+  comparison. Without it a mid-bar activation defers to the NEXT bar — and one
+  falling inside the session's last bar (a 1-min NYSE session ends at 15:59:00,
+  so 15:59:30) never activates at all, silently producing zero fills while
+  filling normally against a live broker's clock. Covering the bar is
+  deliberately optimistic: the fill is evaluated against the whole bar, including
+  the part before the activation instant, which bar-level simulation cannot
+  resolve.
 
 ### OCA (One-Cancels-Other)
 

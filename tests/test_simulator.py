@@ -1,6 +1,6 @@
 """Tests for Simulator class."""
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from xtrading_models import (
     BarData,
@@ -12,6 +12,7 @@ from xtrading_models import (
 from xtrading_models.order import StopLimitOrder, TrailingStopMarket
 
 from simulator import Simulator, SimulatorConfig
+from execEngine import order_active_at
 
 
 # region Test Fixtures
@@ -1966,5 +1967,75 @@ class TestProcessBars:
 
         assert len(results) == 1
         assert len(results[0]) == 1  # fill from bar_day1, accumulated through bar_day1_close
+
+# endregion
+
+
+# region goodAfterTime falling inside a bar
+
+MINUTE = timedelta(minutes=1)
+
+
+def _gat_order(gat: str) -> MarketOrder:
+    return MarketOrder(action='BUY', totalQuantity=100, goodAfterTime=gat)
+
+
+class TestGoodAfterTimeWithinBar:
+    """A goodAfterTime landing mid-bar activates on that bar, not the next one.
+
+    Bars carry their START time, so comparing only `bar_time >= goodAfterTime`
+    defers a mid-bar activation to the following bar — and when it falls inside
+    the session's LAST bar there is no following bar, so the order never becomes
+    active at all. A 1-min NYSE session ends with a bar stamped 15:59:00, so a
+    15:59:30 activation silently never filled.
+    """
+
+    def test_mid_bar_activation_is_inactive_without_a_bar_duration(self):
+        # timedelta(0) keeps the strict start-only comparison — the behaviour
+        # every existing caller relies on.
+        order = _gat_order('20240115 10:00:30 US/Eastern')
+        assert order_active_at(order, datetime(2024, 1, 15, 10, 0), timedelta(0)) is False
+
+    def test_mid_bar_activation_is_active_once_the_bar_covers_it(self):
+        order = _gat_order('20240115 10:00:30 US/Eastern')
+        assert order_active_at(order, datetime(2024, 1, 15, 10, 0), MINUTE) is True
+
+    def test_activation_at_the_bar_end_belongs_to_the_next_bar(self):
+        # The span is half-open [start, start + duration): 10:01:00 is the NEXT
+        # bar's start, so it must not activate on the 10:00 bar.
+        order = _gat_order('20240115 10:01:00 US/Eastern')
+        assert order_active_at(order, datetime(2024, 1, 15, 10, 0), MINUTE) is False
+        assert order_active_at(order, datetime(2024, 1, 15, 10, 1), MINUTE) is True
+
+    def test_activation_before_the_bar_is_active_either_way(self):
+        order = _gat_order('20240115 09:00:00 US/Eastern')
+        assert order_active_at(order, datetime(2024, 1, 15, 10, 0), timedelta(0)) is True
+        assert order_active_at(order, datetime(2024, 1, 15, 10, 0), MINUTE) is True
+
+    def test_last_bar_of_the_session_the_regression_this_fixes(self):
+        # The NYSE 1-min session's final bar is stamped 15:59:00 and spans to
+        # 16:00. Before this, a 15:59:30 activation had no bar to land on.
+        order = _gat_order('20240115 15:59:30 US/Eastern')
+        last_bar = datetime(2024, 1, 15, 15, 59)
+        assert order_active_at(order, last_bar, timedelta(0)) is False
+        assert order_active_at(order, last_bar, MINUTE) is True
+
+    def test_simulator_fills_a_mid_bar_activation_on_that_bar(self, time_provider):
+        Simulator.static_init(time_provider, SimulatorConfig(bar_duration=MINUTE))
+        sim = Simulator()
+        order = _gat_order('20240115 15:59:30 US/Eastern')
+        sim.submit_order(order)
+        bar = BarData(date=datetime(2024, 1, 15, 15, 59), open=100.0, high=105.0,
+                      low=95.0, close=102.0, volume=1000)
+        assert len(sim.process_bar(bar)) == 1
+
+    def test_simulator_without_bar_duration_leaves_it_unfilled(self, time_provider):
+        Simulator.static_init(time_provider, SimulatorConfig())
+        sim = Simulator()
+        order = _gat_order('20240115 15:59:30 US/Eastern')
+        sim.submit_order(order)
+        bar = BarData(date=datetime(2024, 1, 15, 15, 59), open=100.0, high=105.0,
+                      low=95.0, close=102.0, volume=1000)
+        assert sim.process_bar(bar) == []
 
 # endregion

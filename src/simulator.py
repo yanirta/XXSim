@@ -1,7 +1,7 @@
 """Bar sequence simulator for managing order lifecycle across multiple bars."""
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, Iterator, Literal, Optional
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,9 @@ class SimulatorConfig:
     fill_drift_model: Literal["none", "normal"] = "none"
     std_divider: int = 1000
     random_seed: Optional[int] = None
+    # Span of one bar. Lets a goodAfterTime falling inside a bar activate on that
+    # bar rather than the next one — which for the session's last bar means never.
+    bar_duration: timedelta = timedelta(0)
 
 
 class Simulator:
@@ -50,7 +53,8 @@ class Simulator:
                 commission_per_fill=self._config.commission_per_fill,
                 fill_drift_model=self._config.fill_drift_model,
                 std_divider=self._config.std_divider,
-                random_seed=self._config.random_seed)
+                random_seed=self._config.random_seed,
+                bar_duration=self._config.bar_duration)
             )
         self._active_trades: dict[int, Trade] = {}
         self._oca_groups: dict[str, set[int]] = {}  # ocaGroup -> {orderId, ...}
@@ -259,7 +263,7 @@ class Simulator:
                 continue
 
             # Skip if goodAfterTime not yet reached
-            if not order_active_at(trade.order, bar.date):
+            if not order_active_at(trade.order, bar.date, self._config.bar_duration):
                 continue
 
             fills = self._engine.execute(trade.order, bar)
