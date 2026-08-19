@@ -2,13 +2,6 @@
 
 OHLCV-based stock exchange execution simulator for backtesting trading strategies. Determines realistic order fills from sparse candlestick data. See `../CLAUDE.md` for workspace-wide conventions.
 
-## Commands
-
-```bash
-pytest tests/ -v
-pytest tests/test_file.py::test_function -v
-```
-
 ## Architecture
 
 ### Core Components
@@ -82,10 +75,6 @@ Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. O
 4. Expire unfilled DAY orders if date changed (compares bar date to first `Submitted` log entry)
 
 **MOC PreSubmitted lifecycle:** MOC orders are submitted with status `PreSubmitted`. On the first `process_bar` call they activate to `Submitted` (dated that bar). This means a MOC order submitted after the day's last bar sees its first bar the next morning and fills at that day's close — matching IB's real behavior.
-
-### Test Data
-
-CSV-driven formation tests in `test-data/`.
 
 ## Code Conventions
 
