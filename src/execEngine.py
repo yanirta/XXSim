@@ -62,8 +62,21 @@ class ExecutionConfig:
     # Random seed for reproducible statistical drift
     random_seed: Optional[int] = None
 
-    # Flat commission per fill in USD
-    commission_per_fill: float = 0.0
+    # Commission model, shaped after Interactive Brokers' US-equities schedule.
+    # All zero (the default) means free trading, which is what every caller got
+    # before this existed — a backtest that reports an edge the real book cannot
+    # trade, since IB's minimum alone can exceed a small trade's whole profit.
+    #
+    #   commission = clamp(flat + per_share * shares, minimum, max_pct * notional)
+    #
+    # IB's "fixed" tier for US equities is per_share=0.005, minimum=1.00,
+    # max_pct=0.01; the "tiered" tier is per_share=0.0035, minimum=0.35, same cap.
+    # The cap OUTRANKS the minimum and that ordering is the whole point of having
+    # both: one share of a $20 stock is capped at $0.20, not floored at $1.00.
+    commission_per_fill: float = 0.0        # flat charge per fill, regardless of size
+    commission_per_share: float = 0.0       # marginal cost per share
+    commission_minimum: float = 0.0         # floor per fill; 0 disables it
+    commission_max_pct: float = 0.0         # ceiling as a fraction of notional; 0 disables it
 
     # Span of one bar, used to decide whether a goodAfterTime falling inside a
     # bar activates on it. Zero keeps the strict start-only comparison.
@@ -76,6 +89,23 @@ class ExecutionEngine:
     def __init__(self, config: Optional[ExecutionConfig] = None):
         self._config = config or ExecutionConfig()
         self._rng = np.random.default_rng(self._config.random_seed)
+
+    def _commission_for(self, shares: float, price: float) -> CommissionReport:
+        """What this fill costs, under the configured schedule.
+
+        Six fill paths used to build this report inline from a flat constant. They
+        are one call now, because a commission model that only some order types
+        applied would be worse than none: the difference would read as an edge
+        belonging to the order shape.
+
+        The cap is applied after the floor deliberately — see ExecutionConfig.
+        """
+        cost = self._config.commission_per_fill + self._config.commission_per_share * abs(shares)
+        if self._config.commission_minimum:
+            cost = max(cost, self._config.commission_minimum)
+        if self._config.commission_max_pct:
+            cost = min(cost, self._config.commission_max_pct * abs(shares) * price)
+        return CommissionReport(commission=cost, currency="USD")
 
     def _apply_fill_drift(self, fill_price: float, bar: BarData,
                           next_fragment_price: Optional[float] = None) -> float:
@@ -204,10 +234,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = CommissionReport(
-            commission=self._config.commission_per_fill,
-            currency="USD",
-        )
+        commission = self._commission_for(order.totalQuantity, fill_price)
 
         return [Fill(
             order=order,
@@ -230,10 +257,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = CommissionReport(
-            commission=self._config.commission_per_fill,
-            currency="USD",
-        )
+        commission = self._commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
                 order=order,
@@ -274,10 +298,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = CommissionReport(
-            commission=self._config.commission_per_fill,
-            currency="USD",
-        )
+        commission = self._commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
             order=order,
@@ -318,10 +339,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = CommissionReport(
-            commission=self._config.commission_per_fill,
-            currency="USD",
-        )
+        commission = self._commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
             order=order,
@@ -376,10 +394,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = CommissionReport(
-            commission=self._config.commission_per_fill,
-            currency="USD",
-        )
+        commission = self._commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
             order=order,
@@ -454,10 +469,7 @@ class ExecutionEngine:
                 side=order.action,
             )
 
-            commission = CommissionReport(
-                commission=self._config.commission_per_fill,
-                currency="USD",
-            )
+            commission = self._commission_for(order.totalQuantity, fill_price)
 
             fill = Fill(
                 order=order,

@@ -14,7 +14,12 @@ from event_emitter import EventEmitter, SimulatorEvent
 @dataclass
 class SimulatorConfig:
     """Configuration for Simulator behavior."""
+    # Commission schedule — see ExecutionConfig for the formula and IB's tiers.
+    # All zero means free trading, the behaviour every caller had before.
     commission_per_fill: float = 0.0
+    commission_per_share: float = 0.0
+    commission_minimum: float = 0.0
+    commission_max_pct: float = 0.0
     fill_drift_model: Literal["none", "normal"] = "none"
     std_divider: int = 1000
     random_seed: Optional[int] = None
@@ -51,6 +56,9 @@ class Simulator:
         self._engine = ExecutionEngine(
             ExecutionConfig(
                 commission_per_fill=self._config.commission_per_fill,
+                commission_per_share=self._config.commission_per_share,
+                commission_minimum=self._config.commission_minimum,
+                commission_max_pct=self._config.commission_max_pct,
                 fill_drift_model=self._config.fill_drift_model,
                 std_divider=self._config.std_divider,
                 random_seed=self._config.random_seed,

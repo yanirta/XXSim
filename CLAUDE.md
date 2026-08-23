@@ -7,7 +7,7 @@ OHLCV-based stock exchange execution simulator for backtesting trading strategie
 ### Core Components
 
 - **`src/execEngine.py`**: `ExecutionEngine` - recursive order execution against bar data. Handles order type dispatch and parent-child relationships.
-- **`src/simulator.py`**: `Simulator` - wraps ExecutionEngine to manage order lifecycle across multiple bars. `SimulatorConfig` controls fill drift (`fill_drift_model`, `std_divider`), commission, and `bar_duration` (see GAT below).
+- **`src/simulator.py`**: `Simulator` - wraps ExecutionEngine to manage order lifecycle across multiple bars. `SimulatorConfig` controls fill drift (`fill_drift_model`, `std_divider`), commission (see below), and `bar_duration` (see GAT below).
 
 ### Execution Flow
 
@@ -58,6 +58,35 @@ re-arms it as if it had been freshly submitted at that instant:
   deliberately optimistic: the fill is evaluated against the whole bar, including
   the part before the activation instant, which bar-level simulation cannot
   resolve.
+
+### Commission
+
+Every fill is priced by one method, `ExecutionEngine._commission_for(shares, price)`:
+
+```
+commission = clamp(per_fill + per_share * shares, minimum, max_pct * notional)
+```
+
+Configured on `ExecutionConfig` / `SimulatorConfig` as `commission_per_fill`,
+`commission_per_share`, `commission_minimum`, `commission_max_pct`. **All default
+to zero, which is free trading** — the behaviour every caller had before the model
+existed, and still the right default for a run asking about signal quality rather
+than net P&L.
+
+Interactive Brokers' US-equities schedules, as a caller would set them:
+
+| Tier | `per_share` | `minimum` | `max_pct` |
+|------|-------------|-----------|-----------|
+| Fixed | 0.005 | 1.00 | 0.01 |
+| Tiered | 0.0035 | 0.35 | 0.01 |
+
+**The cap outranks the minimum**, and that ordering is why both exist: one share
+of a $20 stock costs 1% of $20 = $0.20, not the $1.00 floor. A floor-then-return
+implementation overcharges exactly the small trades a one-share config is made of.
+
+All six fill paths (MOC, MKT, LMT, STP, STP LMT, TRAIL) call the one method. A
+model that only some order types applied would be worse than none — the
+difference would read as an edge belonging to the order shape.
 
 ### OCA (One-Cancels-Other)
 
