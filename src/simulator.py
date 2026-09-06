@@ -1,7 +1,7 @@
 """Bar sequence simulator for managing order lifecycle across multiple bars."""
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from typing import Callable, Iterator, Literal, Optional
 
 logger = logging.getLogger(__name__)
@@ -9,6 +9,45 @@ logger = logging.getLogger(__name__)
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
 from execEngine import ExecutionEngine, ExecutionConfig, order_active_at
 from event_emitter import EventEmitter, SimulatorEvent
+
+# IB rejects a market-on-close order that reaches it after the venue's cutoff
+# (error 201). One cutoff is used for every symbol: NYSE and Nasdaq publish
+# slightly different MOC/LOC deadlines and imbalance windows, and those
+# differences are deliberately NOT modelled — a single conservative cutoff is
+# enough to stop a late fill from silently acquiring an exit it could never have
+# had. Revisit only if a strategy starts trading the 15:50-16:00 window.
+MOC_CUTOFF = dtime(15, 50)
+
+
+def gtd_expired(good_till_date: str, bar_time: datetime) -> bool:
+    """Whether a GTD deadline has passed by `bar_time` (the bar's START).
+
+    Two granularities, because IB accepts both and they mean different things:
+
+    - ``'YYYYMMDD'`` — day granularity, the original behaviour. Valid through the
+      whole of that day, expired on any later one. Unchanged so date-only callers
+      (and daily-resolution backtests, where a bar IS a day) behave exactly as
+      before.
+    - ``'YYYYMMDD HH:MM:SS'``, optional timezone suffix — pinned to the instant.
+      The first bar that *starts* at or after the deadline is refused, so an order
+      good till 15:45 may still fill in the bar ending 15:45 and never after.
+      This is what lets a strategy stop trading before the close rather than at
+      it — the difference between an entry that can still be bracketed and one
+      that fills at 15:59 with no exit that can reach the auction.
+
+    The suffix is exchange-local, matching the bars, so it is dropped and the
+    deadline read in `bar_time`'s own timezone — keeping both sides tz-aware, or
+    both naive. Unparseable input never expires an order.
+    """
+    parts = good_till_date.split()
+    clock = parts[1] if len(parts) > 1 and ':' in parts[1] else None
+    try:
+        if clock is None:
+            return bar_time.date() > datetime.strptime(parts[0], '%Y%m%d').date()
+        deadline = datetime.strptime(f'{parts[0]} {clock}', '%Y%m%d %H:%M:%S')
+        return bar_time >= deadline.replace(tzinfo=bar_time.tzinfo)
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -88,6 +127,18 @@ class Simulator:
         if order.permId == 0:
             order.permId = order.orderId
 
+        # An MOC that reaches the auction desk after the cutoff never reaches the
+        # auction. What matters is when the order goes LIVE, not when it was
+        # written down: an immediately-live MOC is judged by the clock now, and a
+        # deferred one by the time of day its goodAfterTime names — a deferral to
+        # 15:55 is just as late as a submission at 15:55, on whatever day it
+        # lands. The case that prompted this is a bracket child created at the
+        # instant its parent fills late in the session, which otherwise sits
+        # inertly and expires with the day, leaving the position it was meant to
+        # close with no exit at all.
+        if self._moc_is_too_late(order, self._time_provider.now()):
+            return self._reject_late_moc(order, self._time_provider.now())
+
         # MOC orders start as PreSubmitted: they can only fill at the next close bar,
         # so they must not be treated as a same-day DAY order until first processed.
         initial_status = TradeStatus.PreSubmitted if order.orderType == 'MOC' else TradeStatus.Submitted
@@ -111,6 +162,58 @@ class Simulator:
             self._oca_groups[order.ocaGroup].add(order.orderId)
 
         self._active_trades[order.orderId] = trade
+        self._events.emit(SimulatorEvent.status, trade)
+        return trade
+
+    def _moc_activation_time(self, order: Order, becomes_live: datetime) -> dtime:
+        """Time of day at which this MOC becomes live.
+
+        Its goodAfterTime when it has one, otherwise `becomes_live` — the clock
+        for a directly submitted order, and the bar's own timestamp for a bracket
+        child (a child goes live on the bar its parent fills on, not when the
+        parent was written).
+
+        Only a time of day is returned, and for a goodAfterTime the target date
+        is discarded on purpose: every session has the same cutoff, so an
+        activation past it is late on whichever day it lands. Deferring to
+        15:55 next Tuesday is refused for the same reason as 15:55 today — there
+        is no date on which 15:55 reaches the auction. Carrying the date would
+        only invite a comparison ("is it late *today*?") that has no bearing on
+        the answer.
+
+        Same parse as `order_active_at`: '%Y%m%d %H:%M:%S' with an optional
+        timezone suffix, which is exchange-local and dropped.
+        """
+        if not order.goodAfterTime:
+            return becomes_live.time()
+        gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
+        return datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').time()
+
+    def _moc_is_too_late(self, order: Order, becomes_live: datetime) -> bool:
+        return order.orderType == 'MOC' and self._moc_activation_time(order, becomes_live) >= MOC_CUTOFF
+
+    def _reject_late_moc(self, order: Order, becomes_live: datetime) -> Trade:
+        """Return a Cancelled trade for an MOC that would go live past MOC_CUTOFF.
+
+        It never becomes active and — the part that matters — never joins its
+        OCA group. A rejected order that registered there would be free to
+        cancel the sibling exit that is still legitimately working.
+        """
+        activates = self._moc_activation_time(order, becomes_live)
+        trade = Trade(
+            order=order,
+            orderStatus=OrderStatus(
+                orderId=order.orderId,
+                status=TradeStatus.Cancelled,
+                remaining=order.totalQuantity,
+            ),
+            log=[TradeLogEntry(
+                time=becomes_live,
+                status=TradeStatus.Cancelled,
+                message=f'MOC rejected: goes live {activates:%H:%M}, '
+                        f'after the {MOC_CUTOFF:%H:%M} cutoff',
+            )],
+        )
         self._events.emit(SimulatorEvent.status, trade)
         return trade
 
@@ -244,7 +347,7 @@ class Simulator:
                 self._events.emit(SimulatorEvent.status, trade)
 
         # 1. Expire GTD orders past goodTillDate
-        self._expire_gtd_orders(current_date)
+        self._expire_gtd_orders(bar.date)
 
         # 2. Expire DAY orders before matching on date change
         #    Only expire orders submitted on a prior day — orders submitted
@@ -362,6 +465,15 @@ class Simulator:
                             )
                             self._events.emit(SimulatorEvent.cancel, child_trade)
                             self._events.emit(SimulatorEvent.status, child_trade)
+                        elif self._moc_is_too_late(child, bar.date):
+                            # A bracket child goes live on the bar its parent
+                            # fills on. An MOC born after the cutoff missed the
+                            # auction it exists for, so it is refused here rather
+                            # than added — otherwise it lingers unfillable until
+                            # DAY expiry and the position it was meant to close
+                            # is left with no working exit and no trace of why.
+                            child_trade = self._reject_late_moc(child, bar.date)
+                            self._events.emit(SimulatorEvent.cancel, child_trade)
                         else:
                             child_trade = Trade(
                                 order=child,
@@ -568,19 +680,18 @@ class Simulator:
         for order_id, trade in trades_to_expire:
             self._cancel_trade(order_id, trade, 'DAY order expired')
 
-    def _expire_gtd_orders(self, current_date: date) -> None:
-        """Expire GTD orders past their goodTillDate."""
+    def _expire_gtd_orders(self, bar_time: datetime) -> None:
+        """Expire GTD orders whose goodTillDate has passed — see `gtd_expired`.
+
+        Runs before matching, so an order that has just expired cannot fill on
+        the bar that expired it.
+        """
         trades_to_expire: list[tuple[int, Trade]] = []
 
         for order_id, trade in self._active_trades.items():
             order = trade.order
-            if order.tif == 'GTD' and order.goodTillDate:
-                try:
-                    gtd = datetime.strptime(order.goodTillDate[:8], '%Y%m%d').date()
-                    if current_date > gtd:
-                        trades_to_expire.append((order_id, trade))
-                except ValueError:
-                    pass
+            if order.tif == 'GTD' and order.goodTillDate and gtd_expired(order.goodTillDate, bar_time):
+                trades_to_expire.append((order_id, trade))
 
         for order_id, trade in trades_to_expire:
             self._cancel_trade(order_id, trade, 'GTD order expired')

@@ -2039,3 +2039,67 @@ class TestGoodAfterTimeWithinBar:
         assert sim.process_bar(bar) == []
 
 # endregion
+
+
+class TestIntradayGtd:
+    """GTD with a time of day, so a strategy can stop trading before the close
+    rather than at it. Date-only GTD keeps its original day granularity."""
+
+    @staticmethod
+    def _limit_order(gtd: str):
+        from xtrading_models.order import LimitOrder
+        order = LimitOrder(action="BUY", totalQuantity=10, price=100.0)
+        order.tif = "GTD"
+        order.goodTillDate = gtd
+        return order
+
+    @staticmethod
+    def _bar(dt, price: float = 100.0):
+        from xtrading_models import BarData
+        return BarData(date=dt, open=price, high=price, low=price, close=price, volume=100)
+
+    def test_alive_in_the_bar_that_ends_at_the_deadline(self, simulator):
+        from datetime import datetime
+        from xtrading_models import TradeStatus
+        trade = simulator.submit_order(self._limit_order("20240115 15:45:00 US/Eastern"))
+        simulator.process_bar(self._bar(datetime(2024, 1, 15, 15, 44), price=101.0))
+        assert trade.orderStatus.status != TradeStatus.Cancelled
+
+    def test_expired_on_the_bar_that_starts_at_the_deadline(self, simulator):
+        from datetime import datetime
+        from xtrading_models import TradeStatus
+        trade = simulator.submit_order(self._limit_order("20240115 15:45:00 US/Eastern"))
+        simulator.process_bar(self._bar(datetime(2024, 1, 15, 15, 45), price=101.0))
+        assert trade.orderStatus.status == TradeStatus.Cancelled
+
+    def test_an_expired_order_cannot_fill_on_the_bar_that_expired_it(self, simulator):
+        """Expiry runs before matching — otherwise the deadline would be a
+        suggestion, and a marketable bar would still trade through it."""
+        from datetime import datetime
+        order = self._limit_order("20240115 15:45:00 US/Eastern")
+        simulator.submit_order(order)
+        fills = simulator.process_bar(self._bar(datetime(2024, 1, 15, 15, 45), price=99.0))
+        assert fills == []
+
+    def test_date_only_gtd_still_lives_through_its_whole_day(self, simulator):
+        from datetime import datetime
+        from xtrading_models import TradeStatus
+        trade = simulator.submit_order(self._limit_order("20240115"))
+        simulator.process_bar(self._bar(datetime(2024, 1, 15, 15, 59), price=101.0))
+        assert trade.orderStatus.status != TradeStatus.Cancelled
+        simulator.process_bar(self._bar(datetime(2024, 1, 16, 9, 30), price=101.0))
+        assert trade.orderStatus.status == TradeStatus.Cancelled
+
+    def test_a_time_without_a_timezone_suffix_is_accepted(self, simulator):
+        from datetime import datetime
+        from xtrading_models import TradeStatus
+        trade = simulator.submit_order(self._limit_order("20240115 15:45:00"))
+        simulator.process_bar(self._bar(datetime(2024, 1, 15, 15, 45), price=101.0))
+        assert trade.orderStatus.status == TradeStatus.Cancelled
+
+    def test_unparseable_gtd_never_expires_the_order(self, simulator):
+        from datetime import datetime
+        from xtrading_models import TradeStatus
+        trade = simulator.submit_order(self._limit_order("not-a-date"))
+        simulator.process_bar(self._bar(datetime(2024, 1, 16, 9, 30), price=101.0))
+        assert trade.orderStatus.status != TradeStatus.Cancelled

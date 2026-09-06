@@ -16,7 +16,7 @@ XSim simulates order execution using OHLCV bar data. The core challenge: **recon
 
 **Achievements:**
 - ✅ **Market Orders**: Fill at bar.open
-- ✅ **Market-on-Close (MOC)**: Fill at bar.close, only when `BarData.is_close_bar=True`; pending on all other bars
+- ✅ **Market-on-Close (MOC)**: Fill at bar.close, only when `BarData.is_close_bar=True`; pending on all other bars. An MOC that would go **live** at or after `simulator.MOC_CUTOFF` (15:50 ET) is **rejected** — returned `Cancelled`, never active, and never registered in its OCA group so it cannot cancel a working sibling. IB answers a late MOC with error 201; before this, such an order sat inertly until DAY expiry, so a position whose only remaining exit was that MOC was silently left with nothing working. **The test is when the order goes live, not when it was written**: a directly submitted MOC is judged by the clock, a deferred one by the *time of day* its `goodAfterTime` names (the target date is irrelevant — deferring to 15:55 is as late as submitting at 15:55), and a bracket child by the timestamp of the bar its parent fills on. That last case is the one that motivated this: a child is created inside `process_bar`, never through `submit_order`, so a check on submission alone does not see it. One cutoff is applied to every symbol — NYSE and Nasdaq publish slightly different MOC/LOC deadlines and imbalance windows, and those differences are deliberately not modelled *(v0.21.0)*
 - ✅ **Limit Orders**: Fill when bar touches limit price
   - BUY: fills if `bar.low <= limit`, at `min(bar.open, limit)`
   - SELL: fills if `bar.high >= limit`, at `max(bar.open, limit)`
@@ -276,7 +276,7 @@ def execute(order, bar, state=None):
 - **TIF support**:
   - **GTC**: Never expires
   - **DAY**: Expires at the start of the next trading day, but *only* for orders submitted on a prior day — orders submitted today (e.g. during `execute()` before bars run) survive
-  - **GTD**: Expires after `goodTillDate`
+  - **GTD**: Expires after `goodTillDate`, at either granularity the string carries. `'YYYYMMDD'` keeps day granularity — valid through that whole day, expired on any later one (unchanged, and what a daily-resolution backtest needs, since there a bar *is* a day). `'YYYYMMDD HH:MM:SS'` with an optional timezone suffix pins the deadline to the instant: the first bar that **starts** at or after it is expired, before matching, so an order good till 15:45 may fill in the bar ending 15:45 and never after. Expiry running before matching is what makes the deadline binding rather than advisory — otherwise a marketable bar would trade through it. This is how a strategy stops trading before the close instead of at it, which matters because an entry filling at 15:59 creates its MOC exit past the 15:50 cutoff and is left with no exit that can reach the auction *(v0.21.0)*
   - **GTC + GAT**: Order stays active indefinitely but skips bars before `goodAfterTime`; used for bracket children that should only activate on day N (e.g. max-hold MOC exits). This also holds on the parent's own fill bar: when a parent fills, the same-bar child recursion (`ExecutionEngine.execute`) skips any child whose `goodAfterTime` is still in the future (via `order_active_at`), so a future-dated take-profit/exit is submitted as an active trade rather than filling on the entry bar *(v0.17.5)*
 - **Event callbacks**: on_fill, on_cancel, on_update, on_bar, off_bar (unsubscribe)
 - **Bar processing**: Automatic order carry-forward, child order promotion on partial fills

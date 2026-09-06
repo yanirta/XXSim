@@ -311,3 +311,121 @@ class TestBracketChildGoodAfterTime:
         # Day2 (GAT reached) — fills at the limit.
         day2_fills = sim.process_bar(make_close_bar_hl(datetime(2024, 1, 17, 16, 0), close=100.0, high=103.0, low=99.0))
         assert any(f.execution.orderId == child.orderId for f in day2_fills)
+
+
+class TestMocCutoff:
+    """An MOC that reaches the broker after MOC_CUTOFF misses the auction.
+
+    IB answers that with error 201; before this was modelled the order sat
+    inertly until the day rolled and was then expired, so a position whose only
+    remaining exit was that MOC was left with nothing working and no sign of it.
+    """
+
+    def test_moc_before_cutoff_is_accepted_and_fills_at_the_close(self, sim, time_provider):
+        time_provider.set_time(datetime(2024, 1, 15, 15, 49))
+        trade = sim.submit_order(moc_order())
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.PreSubmitted
+        fills = sim.process_bar(make_close_bar(datetime(2024, 1, 15, 15, 59)))
+        assert len(fills) == 1
+
+    def test_moc_after_cutoff_is_rejected(self, sim, time_provider):
+        time_provider.set_time(datetime(2024, 1, 15, 15, 51))
+        trade = sim.submit_order(moc_order())
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.Cancelled
+        assert "goes live 15:51, after the 15:50 cutoff" in trade.log[-1].message
+
+    def test_a_rejected_moc_never_becomes_active(self, sim, time_provider):
+        """It must not fill at a later close either — it was never at the venue."""
+        time_provider.set_time(datetime(2024, 1, 15, 15, 51))
+        sim.submit_order(moc_order())
+        assert sim.process_bar(make_close_bar(datetime(2024, 1, 15, 15, 59))) == []
+        assert sim.process_bar(make_close_bar(datetime(2024, 1, 16, 15, 59))) == []
+
+    def test_the_cutoff_is_inclusive(self, sim, time_provider):
+        time_provider.set_time(datetime(2024, 1, 15, 15, 50))
+        from xtrading_models import TradeStatus
+        assert sim.submit_order(moc_order()).orderStatus.status == TradeStatus.Cancelled
+
+    def test_a_rejected_moc_does_not_cancel_its_oca_sibling(self, sim, time_provider):
+        """The reason it is kept out of the OCA group: the sibling exit is still
+        legitimately working, and a rejected order must not take it down."""
+        time_provider.set_time(datetime(2024, 1, 15, 15, 51))
+        sibling = LimitOrder(action="SELL", totalQuantity=10, price=99.0)
+        sibling.ocaGroup = "exit_group"
+        sibling_trade = sim.submit_order(sibling)
+
+        late = moc_order(action="SELL")
+        late.ocaGroup = "exit_group"
+        sim.submit_order(late)
+
+        from xtrading_models import TradeStatus
+        assert sibling_trade.orderStatus.status != TradeStatus.Cancelled
+        fills = sim.process_bar(make_close_bar(datetime(2024, 1, 15, 15, 59), close=100.0))
+        assert len(fills) == 1, "the working sibling must still be able to fill"
+
+    def test_a_deferred_moc_is_judged_by_its_activation_time(self, sim, time_provider):
+        """The wall clock at submission says nothing about a queued order — it
+        goes live at its goodAfterTime, which here is midnight."""
+        time_provider.set_time(datetime(2024, 1, 15, 15, 51))
+        trade = sim.submit_order(moc_gtc_gat_order(gat="20240117 00:00:00 US/Eastern"))
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.PreSubmitted
+
+    def test_a_deferred_moc_that_goes_live_after_the_cutoff_is_rejected(self, sim, time_provider):
+        """Deferring to 15:55 is exactly as late as submitting at 15:55 — the
+        target date is irrelevant, only the time of day it activates."""
+        time_provider.set_time(datetime(2024, 1, 15, 9, 30))
+        trade = sim.submit_order(moc_gtc_gat_order(gat="20240117 15:55:00 US/Eastern"))
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.Cancelled
+        assert "goes live 15:55" in trade.log[-1].message
+
+    def test_a_deferred_moc_just_inside_the_cutoff_is_accepted(self, sim, time_provider):
+        time_provider.set_time(datetime(2024, 1, 15, 9, 30))
+        trade = sim.submit_order(moc_gtc_gat_order(gat="20240117 15:49:00 US/Eastern"))
+        from xtrading_models import TradeStatus
+        assert trade.orderStatus.status == TradeStatus.PreSubmitted
+
+
+class TestMocCutoffOnBracketChildren:
+    """The path that actually matters: a bracket child is created inside
+    process_bar, not through submit_order, so a guard on submission alone never
+    sees the 15:59 MOC that prompted the cutoff."""
+
+    @staticmethod
+    def _parent_with_moc_child():
+        """A market parent, so it fills on whatever bar it first sees and the
+        child is born at that bar's timestamp."""
+        from xtrading_models.order import MarketOrder
+        parent = MarketOrder(action="BUY", totalQuantity=10)
+        parent.orderId = 1
+        child = MarketOnCloseOrder(action="SELL", totalQuantity=10)
+        child.orderId = 2
+        parent.add_child(child)
+        return parent, child
+
+    def test_moc_child_born_after_the_cutoff_is_rejected(self, sim, time_provider):
+        time_provider.set_time(datetime(2024, 1, 15, 9, 30))
+        parent, _ = self._parent_with_moc_child()
+        sim.submit_order(parent)
+        # Parent triggers on the session's last bar — the child is born at 15:59.
+        sim.process_bar(make_close_bar(datetime(2024, 1, 15, 15, 59), close=100.0))
+        assert 2 not in sim._active_trades, "a refused MOC must never become active"
+
+    def test_moc_child_born_before_the_cutoff_is_kept(self, sim, time_provider):
+        time_provider.set_time(datetime(2024, 1, 15, 9, 30))
+        parent, _ = self._parent_with_moc_child()
+        sim.submit_order(parent)
+        sim.process_bar(make_intraday_bar(datetime(2024, 1, 15, 10, 0), close=100.0))
+        assert 2 in sim._active_trades
+
+    def test_a_rejected_child_does_not_join_its_oca_group(self, sim, time_provider):
+        """It must not be able to cancel the sibling exit still working."""
+        time_provider.set_time(datetime(2024, 1, 15, 9, 30))
+        parent, child = self._parent_with_moc_child()
+        child.ocaGroup = "exit_group"
+        sim.submit_order(parent)
+        sim.process_bar(make_close_bar(datetime(2024, 1, 15, 15, 59), close=100.0))
+        assert 2 not in sim._oca_groups.get("exit_group", set())
