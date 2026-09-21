@@ -6,6 +6,11 @@ from typing import Callable, Iterator, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
+# The only fields `Simulator.update_order` will apply. Deliberately narrow: each
+# one has defined re-arm semantics in `_reset_derived_state`. Anything else is
+# refused outright rather than ignored — see update_order.
+UPDATABLE_FIELDS = frozenset({'price', 'totalQuantity', 'trailingDistance', 'trailingPercent'})
+
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
 from execEngine import ExecutionEngine, ExecutionConfig, order_active_at
 from event_emitter import EventEmitter, SimulatorEvent
@@ -235,7 +240,18 @@ class Simulator:
     def update_order(self, order_id: int, **kwargs) -> bool:
         """Modify an active order in place, re-arming it as if newly submitted.
 
-        Supports updating: price, totalQuantity, trailingDistance, trailingPercent.
+        Supports exactly `UPDATABLE_FIELDS`: price, totalQuantity,
+        trailingDistance, trailingPercent. Any other field REFUSES the whole
+        call — nothing is applied and False is returned.
+
+        That strictness is the point. A live order manager applies whatever
+        field the order object carries and sends it to the broker, so a field
+        this simulator does not model is a no-op in backtest and a real
+        modification in production. Reporting success for a field that was
+        dropped hides that divergence in the direction that matters: the
+        backtest under-reports what live will do, and a caller that journals the
+        modification records something that never happened.
+
         After applying the fields, any *derived* per-order execution state is
         reset (see _reset_derived_state) so the order re-evaluates from the next
         bar — for a trailing stop this re-anchors the high-water mark to the
@@ -245,20 +261,33 @@ class Simulator:
 
         Args:
             order_id: ID of order to update
-            **kwargs: Fields to update (price, totalQuantity, etc.)
+            **kwargs: Fields to update; every key must be in UPDATABLE_FIELDS
 
         Returns:
-            True if order was found and updated, False otherwise
+            True if the order was found and every field applied; False if the
+            order is unknown or any field is unsupported.
         """
         trade = self._active_trades.get(order_id)
         if trade is None:
             return False
 
         order = trade.order
-        allowed_fields = {'price', 'totalQuantity', 'trailingDistance', 'trailingPercent'}
+        unsupported = sorted(k for k in kwargs if k not in UPDATABLE_FIELDS or not hasattr(order, k))
+        if unsupported:
+            # Refuse the WHOLE call rather than applying the recognised subset.
+            # Silently dropping a field while returning True is the dangerous
+            # shape: the live order manager applies any field the order carries
+            # and pushes it to IB, so an unsupported field is a no-op here and a
+            # real modification in production. A caller that cannot tell the two
+            # apart will validate against a fiction — and the AlphaNexus Arbiter
+            # takes True as licence to journal a modification and mark it applied.
+            logger.warning(
+                "update_order(%d) refused: unsupported field(s) %s on %s; supported: %s",
+                order_id, unsupported, order.orderType, sorted(UPDATABLE_FIELDS),
+            )
+            return False
         for key, value in kwargs.items():
-            if key in allowed_fields and hasattr(order, key):
-                setattr(order, key, value)
+            setattr(order, key, value)
 
         self._reset_derived_state(order)
         trade.log.append(TradeLogEntry(
