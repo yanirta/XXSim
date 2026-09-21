@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 # The only fields `Simulator.update_order` will apply. Deliberately narrow: each
 # one has defined re-arm semantics in `_reset_derived_state`. Anything else is
 # refused outright rather than ignored — see update_order.
-UPDATABLE_FIELDS = frozenset({'price', 'totalQuantity', 'trailingDistance', 'trailingPercent'})
+UPDATABLE_FIELDS = frozenset({'price', 'totalQuantity', 'trailingDistance', 'trailingPercent',
+                              'goodAfterTime'})
 
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
 from execEngine import ExecutionEngine, ExecutionConfig, order_active_at
@@ -194,6 +195,40 @@ class Simulator:
         gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
         return datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').time()
 
+    def _good_after_time_is_valid(self, order: Order, good_after_time: str) -> bool:
+        """Whether `good_after_time` may replace this order's existing one.
+
+        Two ways a modification can be wrong in a way submission already guards
+        against, and which no amount of re-arming would catch later:
+
+        * **Unparseable.** `order_active_at` parses on every bar, so a malformed
+          string would not fail here but on the next bar, inside execution,
+          away from the caller that caused it.
+        * **Past the MOC cutoff.** `_moc_is_too_late` runs at submit time only.
+          Deferring an MOC to 15:55 is refused on submission for the good reason
+          that there is no date on which 15:55 reaches the auction; moving a
+          live MOC there by modification has exactly the same problem, and
+          without this check it would sit inert and expire with the day, leaving
+          the position it was meant to close with no exit.
+        """
+        if not good_after_time:
+            return True          # clearing the deferral makes the order immediately live
+        try:
+            gat_str = good_after_time.rsplit(' ', 1)[0]
+            activation = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S')
+        except ValueError:
+            logger.warning("update_order(%d) refused: unparseable goodAfterTime %r",
+                           order.orderId, good_after_time)
+            return False
+        if order.orderType == 'MOC' and activation.time() >= MOC_CUTOFF:
+            logger.warning(
+                "update_order(%d) refused: goodAfterTime %s is at/after the MOC cutoff %s — "
+                "an MOC activating then never reaches the auction",
+                order.orderId, activation.time(), MOC_CUTOFF,
+            )
+            return False
+        return True
+
     def _moc_is_too_late(self, order: Order, becomes_live: datetime) -> bool:
         return order.orderType == 'MOC' and self._moc_activation_time(order, becomes_live) >= MOC_CUTOFF
 
@@ -241,8 +276,13 @@ class Simulator:
         """Modify an active order in place, re-arming it as if newly submitted.
 
         Supports exactly `UPDATABLE_FIELDS`: price, totalQuantity,
-        trailingDistance, trailingPercent. Any other field REFUSES the whole
-        call — nothing is applied and False is returned.
+        trailingDistance, trailingPercent, goodAfterTime. Any other field
+        REFUSES the whole call — nothing is applied and False is returned.
+
+        `goodAfterTime` is additionally validated before anything is applied: it
+        must parse, and on an MOC it must fall before the auction cutoff, since
+        `_moc_is_too_late` only guards submission. See
+        `_good_after_time_is_valid`.
 
         That strictness is the point. A live order manager applies whatever
         field the order object carries and sends it to the broker, so a field
@@ -285,6 +325,8 @@ class Simulator:
                 "update_order(%d) refused: unsupported field(s) %s on %s; supported: %s",
                 order_id, unsupported, order.orderType, sorted(UPDATABLE_FIELDS),
             )
+            return False
+        if 'goodAfterTime' in kwargs and not self._good_after_time_is_valid(order, kwargs['goodAfterTime']):
             return False
         for key, value in kwargs.items():
             setattr(order, key, value)

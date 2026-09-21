@@ -24,7 +24,8 @@ The engine is stateless per-bar; order state (e.g., trailing extreme prices) is 
 re-arms it as if it had been freshly submitted at that instant:
 
 - Applies the given fields — and ONLY these, exported as `UPDATABLE_FIELDS`:
-  `price`, `totalQuantity`, `trailingDistance`, `trailingPercent`. Any other
+  `price`, `totalQuantity`, `trailingDistance`, `trailingPercent`,
+  `goodAfterTime` (0.23.0). Any other
   field, or one the order type does not carry, **refuses the whole call**:
   nothing is applied and `False` is returned (0.22.0; before that an
   unsupported field was silently dropped and `True` returned). The strictness
@@ -32,6 +33,12 @@ re-arms it as if it had been freshly submitted at that instant:
   carries and sends it to the broker — so a field this simulator does not model
   is a no-op in backtest and a real modification in production, and reporting
   success hides that divergence in the direction that flatters the backtest.
+- `goodAfterTime` is validated **before** anything is applied: it must parse,
+  and on an `MOC` it must fall before the auction cutoff. `_moc_is_too_late`
+  guards submission only, so without that check a modification could move a live
+  MOC to 15:55 — inert until it expired with the day, leaving the position it
+  was meant to close with no exit. Unlike a trailing stop, `goodAfterTime` has
+  no derived state to re-arm: `order_active_at` re-reads it every bar.
 - Resets any **derived** per-order execution state (`_reset_derived_state`): for
   a `TRAIL`/`TRAIL LIMIT` the high-water mark (`extremePrice`) and its derived
   `stopPrice` are cleared, so the trail re-anchors to the market on the next bar
