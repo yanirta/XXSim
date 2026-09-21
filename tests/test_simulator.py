@@ -1080,6 +1080,56 @@ class TestOrderUpdates:
         assert order.extremePrice is None
         assert order.stopPrice is None
 
+    def test_update_rejects_an_unsupported_field(self, simulator):
+        """A field the simulator does not model must FAIL, not be dropped.
+
+        The live order manager applies whatever field the order object carries
+        and sends it to the broker, so an unsupported field is a no-op here and
+        a real modification in production. Returning True for a dropped field
+        hides that divergence in the direction that matters."""
+        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0)
+        simulator.submit_order(order)
+
+        result = simulator.update_order(order.orderId, goodAfterTime='20250205 00:00:00 US/Eastern')
+
+        assert result is False
+
+    def test_update_applies_nothing_when_one_field_is_unsupported(self, simulator):
+        """All-or-nothing: a partially applied modification is the worst
+        outcome, because the caller cannot tell which half took effect."""
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
+        simulator.submit_order(order)
+
+        result = simulator.update_order(order.orderId, price=95.0, goodAfterTime='20250205 00:00:00 US/Eastern')
+
+        assert result is False
+        assert order.price == 100.0
+
+    def test_update_rejects_a_field_absent_from_the_order_type(self, simulator):
+        """trailingPercent is updatable in principle, but a plain limit order
+        has no such attribute — supported-in-general is not supported-here."""
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId, trailingPercent=2.0) is False
+        assert order.price == 100.0
+
+    def test_update_with_no_fields_is_a_successful_no_op(self, simulator):
+        """Nothing unsupported was asked for, so the re-arm still happens — the
+        documented 'modify re-arms the order' behaviour with an empty change."""
+        order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId) is True
+        assert order.price == 100.0
+
+    def test_updatable_fields_is_introspectable(self):
+        """Callers (and their tests) should be able to ask what is supported
+        rather than hard-coding the list a second time."""
+        from src.simulator import UPDATABLE_FIELDS
+        assert UPDATABLE_FIELDS == frozenset(
+            {'price', 'totalQuantity', 'trailingDistance', 'trailingPercent'})
+
     def test_update_trailing_percent_reanchors_to_new_bar(self, simulator):
         """After tightening the trail, the stop re-anchors to the post-modify
         market — the pre-modify high is discarded. With the old 110 high and 10%

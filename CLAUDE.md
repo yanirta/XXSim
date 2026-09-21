@@ -23,8 +23,15 @@ The engine is stateless per-bar; order state (e.g., trailing extreme prices) is 
 `update_order(order_id, **fields)` modifies an active order **in place** and
 re-arms it as if it had been freshly submitted at that instant:
 
-- Applies the given fields (`price`, `totalQuantity`, `trailingDistance`,
-  `trailingPercent`).
+- Applies the given fields — and ONLY these, exported as `UPDATABLE_FIELDS`:
+  `price`, `totalQuantity`, `trailingDistance`, `trailingPercent`. Any other
+  field, or one the order type does not carry, **refuses the whole call**:
+  nothing is applied and `False` is returned (0.22.0; before that an
+  unsupported field was silently dropped and `True` returned). The strictness
+  matters because a live order manager applies whatever field the order object
+  carries and sends it to the broker — so a field this simulator does not model
+  is a no-op in backtest and a real modification in production, and reporting
+  success hides that divergence in the direction that flatters the backtest.
 - Resets any **derived** per-order execution state (`_reset_derived_state`): for
   a `TRAIL`/`TRAIL LIMIT` the high-water mark (`extremePrice`) and its derived
   `stopPrice` are cleared, so the trail re-anchors to the market on the next bar
