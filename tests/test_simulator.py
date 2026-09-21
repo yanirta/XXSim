@@ -9,7 +9,7 @@ from xtrading_models import (
     StopOrder,
     Trade,
 )
-from xtrading_models.order import StopLimitOrder, TrailingStopMarket
+from xtrading_models.order import MarketOnCloseOrder, StopLimitOrder, TrailingStopMarket
 
 from simulator import Simulator, SimulatorConfig
 from execEngine import order_active_at
@@ -1090,7 +1090,7 @@ class TestOrderUpdates:
         order = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0)
         simulator.submit_order(order)
 
-        result = simulator.update_order(order.orderId, goodAfterTime='20250205 00:00:00 US/Eastern')
+        result = simulator.update_order(order.orderId, tif='GTC')
 
         assert result is False
 
@@ -1100,7 +1100,7 @@ class TestOrderUpdates:
         order = LimitOrder(action='BUY', totalQuantity=100, price=100.0)
         simulator.submit_order(order)
 
-        result = simulator.update_order(order.orderId, price=95.0, goodAfterTime='20250205 00:00:00 US/Eastern')
+        result = simulator.update_order(order.orderId, price=95.0, tif='GTC')
 
         assert result is False
         assert order.price == 100.0
@@ -1128,7 +1128,75 @@ class TestOrderUpdates:
         rather than hard-coding the list a second time."""
         from src.simulator import UPDATABLE_FIELDS
         assert UPDATABLE_FIELDS == frozenset(
-            {'price', 'totalQuantity', 'trailingDistance', 'trailingPercent'})
+            {'price', 'totalQuantity', 'trailingDistance', 'trailingPercent', 'goodAfterTime'})
+
+    def test_update_good_after_time_defers_activation(self, simulator):
+        """The field is applied, and `order_active_at` reads it fresh on every
+        bar — there is no derived state to re-arm, unlike a trailing stop."""
+        order = MarketOnCloseOrder(action='SELL', totalQuantity=100,
+                                   goodAfterTime='20240110 00:00:00 US/Eastern')
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId,
+                                      goodAfterTime='20240105 00:00:00 US/Eastern') is True
+        assert order.goodAfterTime == '20240105 00:00:00 US/Eastern'
+
+    def test_update_can_pull_a_deferred_exit_forward(self, simulator):
+        """The motivating case: a strategy decides mid-trade that its thesis is
+        dead and brings a deferred max-hold MOC in, without cancelling and
+        re-placing (which would drop the order out of its OCA group)."""
+        order = MarketOnCloseOrder(action='SELL', totalQuantity=100,
+                                   goodAfterTime='20240115 00:00:00 US/Eastern',
+                                   ocaGroup='AAPL_exit')
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId,
+                                      goodAfterTime='20240104 00:00:00 US/Eastern') is True
+        assert order.ocaGroup == 'AAPL_exit'          # OCA membership preserved
+        assert order.orderId is not None
+
+    def test_update_refuses_an_unparseable_good_after_time(self, simulator):
+        """order_active_at parses on EVERY bar, so a malformed string would
+        otherwise fail later inside execution, far from the caller."""
+        order = MarketOnCloseOrder(action='SELL', totalQuantity=100,
+                                   goodAfterTime='20240110 00:00:00 US/Eastern')
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId, goodAfterTime='next tuesday') is False
+        assert order.goodAfterTime == '20240110 00:00:00 US/Eastern'
+
+    def test_update_refuses_moving_an_moc_past_the_auction_cutoff(self, simulator):
+        """`_moc_is_too_late` guards SUBMISSION only. Deferring an MOC to 15:55
+        is refused on submit because no date exists on which 15:55 reaches the
+        auction; moving a live one there by modification has the same problem,
+        and would leave it inert until it expired with the day."""
+        order = MarketOnCloseOrder(action='SELL', totalQuantity=100,
+                                   goodAfterTime='20240110 00:00:00 US/Eastern')
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId,
+                                      goodAfterTime='20240110 15:55:00 US/Eastern') is False
+        assert order.goodAfterTime == '20240110 00:00:00 US/Eastern'
+
+    def test_update_allows_a_late_good_after_time_on_a_non_moc(self, simulator):
+        """The cutoff is an MOC property, not a general one — a stop may sit
+        armed at any time of day."""
+        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0,
+                          goodAfterTime='20240110 00:00:00 US/Eastern')
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId,
+                                      goodAfterTime='20240110 15:55:00 US/Eastern') is True
+
+    def test_update_can_clear_a_deferral(self, simulator):
+        """An empty goodAfterTime makes the order immediately live, which is a
+        legitimate modification rather than a malformed one."""
+        order = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0,
+                          goodAfterTime='20240110 00:00:00 US/Eastern')
+        simulator.submit_order(order)
+
+        assert simulator.update_order(order.orderId, goodAfterTime='') is True
+        assert order.goodAfterTime == ''
 
     def test_update_trailing_percent_reanchors_to_new_bar(self, simulator):
         """After tightening the trail, the stop re-anchors to the post-modify
