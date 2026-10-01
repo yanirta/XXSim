@@ -1,4 +1,5 @@
 """Tests for ExecutionEngine order execution."""
+import dataclasses
 from datetime import datetime
 import pytest
 
@@ -147,7 +148,7 @@ def test_stop_limit_no_trigger(engine, bullish_bar):
 
 def test_moc_order_fills_at_close_on_close_bar(engine, bullish_bar):
     """MOC order fills at bar.close when is_close_bar=True."""
-    close_bar = bullish_bar.model_copy(update={'is_close_bar': True})
+    close_bar = dataclasses.replace(bullish_bar, is_close_bar=True)
     order = MarketOnCloseOrder(action="BUY", totalQuantity=100)
     fills = engine.execute(order, close_bar)
     assert len(fills) == 1
@@ -181,7 +182,7 @@ def test_moc_sell_fills_at_close(engine):
 
 def test_moc_order_quantity_correct(engine, bullish_bar):
     """MOC fill quantity matches order quantity."""
-    close_bar = bullish_bar.model_copy(update={'is_close_bar': True})
+    close_bar = dataclasses.replace(bullish_bar, is_close_bar=True)
     order = MarketOnCloseOrder(action="BUY", totalQuantity=200)
     fills = engine.execute(order, close_bar)
     assert fills[0].execution.shares == 200

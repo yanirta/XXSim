@@ -1,4 +1,5 @@
 """Tests for Simulator class."""
+import dataclasses
 import pytest
 from datetime import datetime, timedelta
 
@@ -2077,7 +2078,7 @@ class TestProcessBars:
         order = MarketOrder(action='BUY', totalQuantity=100)
         simulator.submit_order(order)
 
-        bar_day1_close = bar_day1.model_copy(update={'is_close_bar': True})
+        bar_day1_close = dataclasses.replace(bar_day1, is_close_bar=True)
         results = list(simulator.process_bars(
             [bar_day1, bar_day1_close, bar_day2],
             yield_predicate=lambda bar: bar.is_close_bar,
