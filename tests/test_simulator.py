@@ -12,7 +12,7 @@ from xtrading_models import (
 )
 from xtrading_models.order import MarketOnCloseOrder, StopLimitOrder, TrailingStopMarket
 
-from simulator import Simulator, SimulatorConfig
+from simulator import Simulator, SimulatorConfig, UPDATABLE_FIELDS
 from execEngine import order_active_at
 
 
@@ -1127,7 +1127,6 @@ class TestOrderUpdates:
     def test_updatable_fields_is_introspectable(self):
         """Callers (and their tests) should be able to ask what is supported
         rather than hard-coding the list a second time."""
-        from src.simulator import UPDATABLE_FIELDS
         assert UPDATABLE_FIELDS == frozenset(
             {'price', 'totalQuantity', 'trailingDistance', 'trailingPercent', 'goodAfterTime'})
 
