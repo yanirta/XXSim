@@ -75,7 +75,8 @@ re-arms it as if it had been freshly submitted at that instant:
 
 ### Commission
 
-Every fill is priced by one method, `ExecutionEngine._commission_for(shares, price)`:
+Every fill is priced by one method, `ExecutionEngine.commission_for(shares, price)`. It is public so a caller
+estimating an order's cost before sending it (AlphaNexus's rebalance policy) uses the formula the simulator charges:
 
 ```
 commission = clamp(per_fill + per_share * shares, minimum, max_pct * notional)

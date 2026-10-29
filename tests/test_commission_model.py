@@ -27,7 +27,7 @@ IB_TIERED = dict(commission_per_share=0.0035, commission_minimum=0.35, commissio
 
 
 def cost(shares: float, price: float, **config) -> float:
-    return ExecutionEngine(ExecutionConfig(**config))._commission_for(shares, price).commission
+    return ExecutionEngine(ExecutionConfig(**config)).commission_for(shares, price).commission
 
 
 class TestDefault:
@@ -85,7 +85,7 @@ class TestComposition:
         assert cost(-100, 50.0, **IB_FIXED) > 0
 
     def test_the_currency_is_reported(self):
-        report = ExecutionEngine(ExecutionConfig(**IB_FIXED))._commission_for(100, 50.0)
+        report = ExecutionEngine(ExecutionConfig(**IB_FIXED)).commission_for(100, 50.0)
         assert report.currency == "USD"
 
 
@@ -95,6 +95,6 @@ class TestEveryFillPathCharges:
 
     def test_no_fill_path_builds_its_own_report(self):
         source = (Path(__file__).resolve().parent.parent / "src" / "execEngine.py").read_text()
-        # The only CommissionReport( construction left is the one inside _commission_for.
+        # The only CommissionReport( construction left is the one inside commission_for.
         assert source.count("CommissionReport(") == 1, "a fill path built its own report again"
-        assert source.count("commission = self._commission_for(") == 6
+        assert source.count("commission = self.commission_for(") == 6

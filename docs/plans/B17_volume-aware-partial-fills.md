@@ -137,7 +137,7 @@ Reuse `modify_order(child_id, totalQuantity=...)`, which already exists.
 > produces a better-looking backtest and no error.
 
 ### 4.5 Commission must stay per-order
-`_commission_for` applies `commission_minimum` per fill. Splitting one order into N
+`commission_for` applies `commission_minimum` per fill. Splitting one order into N
 partials would multiply IB's $1 minimum by N, but **IB applies the minimum (and the
 `max_pct` cap) per order, not per execution**. Naive partials therefore fabricate
 commission drag that does not exist — the exact class of error the commission model
@@ -177,7 +177,7 @@ Same question applies per type and should be settled explicitly:
 1. `ExecutionConfig` / `SimulatorConfig`: `max_volume_participation_p`.
 2. `execute()` / `_try_fill_order` / six fill paths: thread remaining, apply cap, set
    `cumQty` / `avgPrice` on `Execution`.
-3. `_commission_for`: cumulative-difference model (§4.5).
+3. `commission_for`: cumulative-difference model (§4.5).
 4. `_fill_stop`: `triggered` short-circuit (§4.6).
 5. `simulator.py`: partial branch — no pop, no OCA cascade, cumulative status (§4.3).
 6. Docs: `README.md` (drop the "No partial fills" line), `EXECUTION_ALGORITHM.md`

@@ -90,7 +90,7 @@ class ExecutionEngine:
         self._config = config or ExecutionConfig()
         self._rng = np.random.default_rng(self._config.random_seed)
 
-    def _commission_for(self, shares: float, price: float) -> CommissionReport:
+    def commission_for(self, shares: float, price: float) -> CommissionReport:
         """What this fill costs, under the configured schedule.
 
         Six fill paths used to build this report inline from a flat constant. They
@@ -234,7 +234,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = self._commission_for(order.totalQuantity, fill_price)
+        commission = self.commission_for(order.totalQuantity, fill_price)
 
         return [Fill(
             order=order,
@@ -257,7 +257,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = self._commission_for(order.totalQuantity, fill_price)
+        commission = self.commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
                 order=order,
@@ -298,7 +298,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = self._commission_for(order.totalQuantity, fill_price)
+        commission = self.commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
             order=order,
@@ -339,7 +339,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = self._commission_for(order.totalQuantity, fill_price)
+        commission = self.commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
             order=order,
@@ -394,7 +394,7 @@ class ExecutionEngine:
             side=order.action,
         )
 
-        commission = self._commission_for(order.totalQuantity, fill_price)
+        commission = self.commission_for(order.totalQuantity, fill_price)
 
         fill = Fill(
             order=order,
@@ -469,7 +469,7 @@ class ExecutionEngine:
                 side=order.action,
             )
 
-            commission = self._commission_for(order.totalQuantity, fill_price)
+            commission = self.commission_for(order.totalQuantity, fill_price)
 
             fill = Fill(
                 order=order,
