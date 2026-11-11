@@ -13,7 +13,7 @@ UPDATABLE_FIELDS = frozenset({'price', 'totalQuantity', 'trailingDistance', 'tra
                               'goodAfterTime'})
 
 from xtrading_models import Order, Fill, BarData, Trade, OrderStatus, TradeLogEntry, TimeProvider, TradeStatus
-from execEngine import ExecutionEngine, ExecutionConfig, order_active_at
+from execEngine import ExecutionEngine, ExecutionConfig, order_active_at, parse_ib_time
 from event_emitter import EventEmitter, SimulatorEvent
 
 # IB rejects a market-on-close order that reaches it after the venue's cutoff
@@ -187,13 +187,11 @@ class Simulator:
         only invite a comparison ("is it late *today*?") that has no bearing on
         the answer.
 
-        Same parse as `order_active_at`: '%Y%m%d %H:%M:%S' with an optional
-        timezone suffix, which is exchange-local and dropped.
+        Same parse as `order_active_at` (`parse_ib_time`).
         """
         if not order.goodAfterTime:
             return becomes_live.time()
-        gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
-        return datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').time()
+        return parse_ib_time(order.goodAfterTime).time()
 
     def _good_after_time_is_valid(self, order: Order, good_after_time: str) -> bool:
         """Whether `good_after_time` may replace this order's existing one.
@@ -214,8 +212,7 @@ class Simulator:
         if not good_after_time:
             return True          # clearing the deferral makes the order immediately live
         try:
-            gat_str = good_after_time.rsplit(' ', 1)[0]
-            activation = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S')
+            activation = parse_ib_time(good_after_time)
         except ValueError:
             logger.warning("update_order(%d) refused: unparseable goodAfterTime %r",
                            order.orderId, good_after_time)
@@ -469,7 +466,7 @@ class Simulator:
                     child_fills_by_id.setdefault(f.execution.orderId, []).append(f)
 
                 # Pre-compute which OCA groups have a child fill
-                # Pick the first filled child per group (closest to open)
+                # Pick the first filled child per group, in the order the children were added
                 oca_winner: dict[str, int] = {}  # ocaGroup -> winning orderId
                 for child in trade.order.children:
                     if child.ocaGroup and child.orderId in child_fills_by_id:
@@ -742,8 +739,7 @@ class Simulator:
             ):
                 continue
             if order.goodAfterTime:
-                gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
-                gat_date = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').date()
+                gat_date = parse_ib_time(order.goodAfterTime).date()
                 if gat_date >= current_date:
                     continue
             trades_to_expire.append((order_id, trade))
