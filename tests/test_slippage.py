@@ -184,35 +184,29 @@ class TestDriftClamping:
 
 class TestLimitDrift:
 
-    def test_limit_buy_fill_gets_drift(self):
-        """Limit BUY fill price should differ from exact limit when drift enabled."""
+    def test_limit_buy_never_fills_above_its_limit(self):
+        """Drift toward the close would lift the fill above the limit; a limit order holds its price."""
         engine = drift_engine()
         bar = make_bar(100.0, 110.0, 90.0, 105.0)  # bullish
         order = LimitOrder(action="BUY", totalQuantity=100, price=95.0)
         fills = engine.execute(order, bar)
 
         assert len(fills) == 1
-        # Limit 95 < open 100 → fills at limit=95, then drift applied
-        # close(105) > fill(95) → drift up
-        expected = expected_drifted_price(95.0, bar)
-        assert fills[0].execution.price == pytest.approx(expected)
-        assert fills[0].execution.price != 95.0
-        assert fills[0].execution.price > 95.0
+        # Limit 95 < open 100 → fills at limit=95; close(105) > fill(95) → drift up, capped at the limit
+        assert expected_drifted_price(95.0, bar) > 95.0
+        assert fills[0].execution.price == 95.0
 
-    def test_limit_sell_fill_gets_drift(self):
-        """Limit SELL fill price should differ from exact limit when drift enabled."""
+    def test_limit_sell_never_fills_below_its_limit(self):
+        """Drift toward the close would drop the fill below the limit; a limit order holds its price."""
         engine = drift_engine()
         bar = make_bar(100.0, 110.0, 90.0, 105.0)  # bullish
         order = LimitOrder(action="SELL", totalQuantity=100, price=108.0)
         fills = engine.execute(order, bar)
 
         assert len(fills) == 1
-        # Limit 108 > open 100 → fills at limit=108
-        # close(105) < fill(108) → drift down
-        expected = expected_drifted_price(108.0, bar)
-        assert fills[0].execution.price == pytest.approx(expected)
-        assert fills[0].execution.price != 108.0
-        assert fills[0].execution.price < 108.0
+        # Limit 108 > open 100 → fills at limit=108; close(105) < fill(108) → drift down, floored at the limit
+        assert expected_drifted_price(108.0, bar) < 108.0
+        assert fills[0].execution.price == 108.0
 
     def test_limit_buy_no_fill_unchanged(self):
         """Limit BUY that doesn't fill should still return no fills."""

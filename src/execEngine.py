@@ -9,6 +9,12 @@ from xtrading_models import Order, Fill, Execution, CommissionReport, BarData
 from xtrading_models.order import StopOrder, StopLimitOrder, TrailingStopMarket
 
 
+def parse_ib_time(text: str) -> datetime:
+    """An IB instant, '%Y%m%d %H:%M:%S' with an optional timezone suffix ('20260115 09:30:00 US/Eastern'), as a
+    naive datetime. The suffix is exchange-local, matching the bars, so it is dropped. Raises ValueError on bad input."""
+    return datetime.strptime(' '.join(text.split()[:2]), '%Y%m%d %H:%M:%S')
+
+
 def order_active_at(order: Order, bar_time: datetime, bar_duration: timedelta) -> bool:
     """Whether an order's goodAfterTime allows it to act on a bar at bar_time.
 
@@ -39,8 +45,7 @@ def order_active_at(order: Order, bar_time: datetime, bar_duration: timedelta) -
     """
     if not order.goodAfterTime:
         return True
-    gat_str = order.goodAfterTime.rsplit(' ', 1)[0]
-    gat = datetime.strptime(gat_str, '%Y%m%d %H:%M:%S').replace(tzinfo=bar_time.tzinfo)
+    gat = parse_ib_time(order.goodAfterTime).replace(tzinfo=bar_time.tzinfo)
     return bar_time >= gat or gat < bar_time + bar_duration
 
 
@@ -271,17 +276,18 @@ class ExecutionEngine:
     def _evaluate_limit_price(self, action: str, limit_price: float, bar: BarData) -> Optional[float]:
         """Evaluate if a limit price would fill against a bar.
 
-        Returns fill price (with slippage applied) if limit is reached, None otherwise.
+        Returns the fill price if the limit is reached, None otherwise. Fill drift moves it only on the
+        favourable side of the limit: a limit order never fills through its own price.
         """
         if action == "BUY":
             if bar.low <= limit_price:
                 fill_price = limit_price if bar.open > limit_price else bar.open
-                return self._apply_fill_drift(fill_price, bar)
+                return min(self._apply_fill_drift(fill_price, bar), limit_price)
             return None
         else:  # SELL
             if bar.high >= limit_price:
                 fill_price = limit_price if bar.open < limit_price else bar.open
-                return self._apply_fill_drift(fill_price, bar)
+                return max(self._apply_fill_drift(fill_price, bar), limit_price)
             return None
 
     def _fill_limit(self, order: Order, bar: BarData, parent_id: int = 0) -> Optional[list[Fill]]:

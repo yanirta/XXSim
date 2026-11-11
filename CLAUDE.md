@@ -11,10 +11,11 @@ OHLCV-based stock exchange execution simulator for backtesting trading strategie
 
 ### Execution Flow
 
-Orders follow a recursive parent-child pattern:
-1. Stop orders create Market children (triggered when stop price hit)
-2. Stop-Limit orders create Limit children (stop triggers limit evaluation)
-3. Trailing orders track extreme prices and adjust stop dynamically
+Each order type has its own fill method; an order's `children` (a bracket) are executed recursively on the bar their
+parent fills on, against that bar re-opened at the parent's fill price:
+1. Stop orders fill at the trigger point (the stop price, or the open after a gap)
+2. Stop-Limit orders trigger, then evaluate their limit on the same bar and stay pending (triggered) if it is not reached
+3. Trailing orders track extreme prices and adjust the stop dynamically
 
 The engine is stateless per-bar; order state (e.g., trailing extreme prices) is mutated on the order object itself.
 
@@ -49,9 +50,9 @@ re-arms it as if it had been freshly submitted at that instant:
 ### Order Type Support
 
 - **MKT**: Fills at bar.open (with optional drift)
-- **LMT**: Fills when bar trades through limit price
-- **STP**: Creates MKT child when stop price hit
-- **STP LMT**: Creates LMT child when stop price hit
+- **LMT**: Fills when the bar touches the limit price. Fill drift never moves the fill through the limit
+- **STP**: Fills at the stop price when hit, or at the open after a gap through it
+- **STP LMT**: Triggers at the stop price, then fills as a limit; stays pending (triggered) until the limit is reached
 - **TRAIL**: Trailing stop; adjusts dynamically with price
 - **MOC** (Market-on-Close): Only fills when `bar.is_close_bar=True`; fills at `bar.close`
 
@@ -110,12 +111,14 @@ Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. O
 
 0. Activate `PreSubmitted` orders: transition to `Submitted`, stamping the bar's date as submission date (used for DAY expiry)
 1. Expire GTD orders past goodTillDate
-2. Sort active orders by distance to bar.open (OCO priority)
-3. For each active order (skip if OCO-cancelled, skip if GAT not yet active):
+2. Expire DAY orders if the date changed (compares bar date to first `Submitted` log entry), before matching, so a DAY order
+   never fills on a later day
+3. Sort active orders by distance to bar.open (OCO priority)
+4. For each active order (skip if OCO-cancelled, skip if GAT not yet active):
    a. Execute via ExecutionEngine
-   b. If filled: update Trade, cancel OCO siblings, submit bracket children
+   b. If filled: update Trade, cancel OCO siblings, submit bracket children. Of two OCA children that both fill on the
+      parent's fill bar, the one added first wins
    c. If not filled: keep (state mutated in-place)
-4. Expire unfilled DAY orders if date changed (compares bar date to first `Submitted` log entry)
 
 **MOC PreSubmitted lifecycle:** MOC orders are submitted with status `PreSubmitted`. On the first `process_bar` call they activate to `Submitted` (dated that bar). This means a MOC order submitted after the day's last bar sees its first bar the next morning and fills at that day's close — matching IB's real behavior.
 

@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 
 from xtrading_models import BarData, MarketOrder, MarketOnCloseOrder, LimitOrder, StopOrder, StopLimitOrder
-from execEngine import ExecutionEngine
+from execEngine import ExecutionEngine, parse_ib_time
 
 
 @pytest.fixture
@@ -188,3 +188,8 @@ def test_moc_order_quantity_correct(engine, bullish_bar):
     assert fills[0].execution.shares == 200
 
 # endregion
+
+
+def test_good_after_time_parses_with_and_without_a_timezone_suffix():
+    assert parse_ib_time('20260115 09:30:00 US/Eastern') == datetime(2026, 1, 15, 9, 30)
+    assert parse_ib_time('20260115 09:30:00') == datetime(2026, 1, 15, 9, 30)
