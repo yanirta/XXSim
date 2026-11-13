@@ -17,12 +17,19 @@ from execEngine import ExecutionEngine, ExecutionConfig, order_active_at, parse_
 from event_emitter import EventEmitter, SimulatorEvent
 
 # IB rejects a market-on-close order that reaches it after the venue's cutoff
-# (error 201). One cutoff is used for every symbol: NYSE and Nasdaq publish
-# slightly different MOC/LOC deadlines and imbalance windows, and those
-# differences are deliberately NOT modelled — a single conservative cutoff is
-# enough to stop a late fill from silently acquiring an exit it could never have
-# had. Revisit only if a strategy starts trading the 15:50-16:00 window.
-MOC_CUTOFF = dtime(15, 50)
+# (error 201): ten minutes before the session's close, so 15:50 on a regular day
+# and 12:50 on a 13:00 half session. One lead is used for every symbol: NYSE and
+# Nasdaq publish slightly different MOC/LOC deadlines and imbalance windows, and
+# those differences are deliberately NOT modelled — a single conservative cutoff
+# is enough to stop a late fill from silently acquiring an exit it could never
+# have had.
+MOC_CUTOFF_LEAD = timedelta(minutes=10)
+REGULAR_CLOSE = dtime(16, 0)
+
+
+def regular_close(day: date) -> dtime:
+    """16:00 on every day: the session close of a simulator given no calendar."""
+    return REGULAR_CLOSE
 
 
 def gtd_expired(good_till_date: str, bar_time: datetime) -> bool:
@@ -71,6 +78,10 @@ class SimulatorConfig:
     # Span of one bar. Lets a goodAfterTime falling inside a bar activate on that
     # bar rather than the next one — which for the session's last bar means never.
     bar_duration: timedelta = timedelta(0)
+    # When each day's session closes, exchange-local. The MOC cutoff is measured
+    # back from it, so a caller with a calendar passes it in to get 12:50 on a
+    # half session; without one every day closes at 16:00.
+    session_close: Callable[[date], dtime] = regular_close
 
 
 class Simulator:
@@ -136,9 +147,9 @@ class Simulator:
         # An MOC that reaches the auction desk after the cutoff never reaches the
         # auction. What matters is when the order goes LIVE, not when it was
         # written down: an immediately-live MOC is judged by the clock now, and a
-        # deferred one by the time of day its goodAfterTime names — a deferral to
-        # 15:55 is just as late as a submission at 15:55, on whatever day it
-        # lands. The case that prompted this is a bracket child created at the
+        # deferred one by the moment its goodAfterTime names, against that day's
+        # cutoff — a deferral to 15:55 is just as late as a submission at 15:55.
+        # The case that prompted this is a bracket child created at the
         # instant its parent fills late in the session, which otherwise sits
         # inertly and expires with the day, leaving the position it was meant to
         # close with no exit at all.
@@ -171,27 +182,29 @@ class Simulator:
         self._events.emit(SimulatorEvent.status, trade)
         return trade
 
-    def _moc_activation_time(self, order: Order, becomes_live: datetime) -> dtime:
-        """Time of day at which this MOC becomes live.
+    def _moc_activation(self, order: Order, becomes_live: datetime) -> datetime:
+        """When this MOC becomes live.
 
         Its goodAfterTime when it has one, otherwise `becomes_live` — the clock
         for a directly submitted order, and the bar's own timestamp for a bracket
         child (a child goes live on the bar its parent fills on, not when the
-        parent was written).
-
-        Only a time of day is returned, and for a goodAfterTime the target date
-        is discarded on purpose: every session has the same cutoff, so an
-        activation past it is late on whichever day it lands. Deferring to
-        15:55 next Tuesday is refused for the same reason as 15:55 today — there
-        is no date on which 15:55 reaches the auction. Carrying the date would
-        only invite a comparison ("is it late *today*?") that has no bearing on
-        the answer.
+        parent was written). A goodAfterTime keeps its date: the cutoff depends on
+        the day, so deferring to 13:30 on a half session is late while 13:30 on a
+        regular day is not.
 
         Same parse as `order_active_at` (`parse_ib_time`).
         """
         if not order.goodAfterTime:
-            return becomes_live.time()
-        return parse_ib_time(order.goodAfterTime).time()
+            return becomes_live
+        return parse_ib_time(order.goodAfterTime)
+
+    def _moc_cutoff(self, day: date) -> dtime:
+        """The last moment an MOC may go live on `day`: MOC_CUTOFF_LEAD before that day's close."""
+        return (datetime.combine(day, self._config.session_close(day)) - MOC_CUTOFF_LEAD).time()
+
+    def _past_moc_cutoff(self, activation: datetime) -> bool:
+        """Whether an MOC going live at `activation` misses that day's auction. Inclusive: at the cutoff is late."""
+        return activation.time() >= self._moc_cutoff(activation.date())
 
     def _good_after_time_is_valid(self, order: Order, good_after_time: str) -> bool:
         """Whether `good_after_time` may replace this order's existing one.
@@ -217,26 +230,26 @@ class Simulator:
             logger.warning("update_order(%d) refused: unparseable goodAfterTime %r",
                            order.orderId, good_after_time)
             return False
-        if order.orderType == 'MOC' and activation.time() >= MOC_CUTOFF:
+        if order.orderType == 'MOC' and self._past_moc_cutoff(activation):
             logger.warning(
                 "update_order(%d) refused: goodAfterTime %s is at/after the MOC cutoff %s — "
                 "an MOC activating then never reaches the auction",
-                order.orderId, activation.time(), MOC_CUTOFF,
+                order.orderId, activation, self._moc_cutoff(activation.date()),
             )
             return False
         return True
 
     def _moc_is_too_late(self, order: Order, becomes_live: datetime) -> bool:
-        return order.orderType == 'MOC' and self._moc_activation_time(order, becomes_live) >= MOC_CUTOFF
+        return order.orderType == 'MOC' and self._past_moc_cutoff(self._moc_activation(order, becomes_live))
 
     def _reject_late_moc(self, order: Order, becomes_live: datetime) -> Trade:
-        """Return a Cancelled trade for an MOC that would go live past MOC_CUTOFF.
+        """Return a Cancelled trade for an MOC that would go live past its day's MOC cutoff.
 
         It never becomes active and — the part that matters — never joins its
         OCA group. A rejected order that registered there would be free to
         cancel the sibling exit that is still legitimately working.
         """
-        activates = self._moc_activation_time(order, becomes_live)
+        activates = self._moc_activation(order, becomes_live)
         trade = Trade(
             order=order,
             orderStatus=OrderStatus(
@@ -248,7 +261,7 @@ class Simulator:
                 time=becomes_live,
                 status=TradeStatus.Cancelled,
                 message=f'MOC rejected: goes live {activates:%H:%M}, '
-                        f'after the {MOC_CUTOFF:%H:%M} cutoff',
+                        f'after the {self._moc_cutoff(activates.date()):%H:%M} cutoff',
             )],
         )
         self._events.emit(SimulatorEvent.status, trade)
