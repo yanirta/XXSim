@@ -1,8 +1,8 @@
 """Tests for MOC order TIF/GAT combinations in Simulator."""
 import pytest
-from datetime import datetime
+from datetime import date, datetime, time as dtime
 
-from xtrading_models import BarData
+from xtrading_models import BarData, TradeStatus
 from xtrading_models.order import LimitOrder, MarketOnCloseOrder, Order
 
 from simulator import Simulator, SimulatorConfig
@@ -314,7 +314,7 @@ class TestBracketChildGoodAfterTime:
 
 
 class TestMocCutoff:
-    """An MOC that reaches the broker after MOC_CUTOFF misses the auction.
+    """An MOC that reaches the broker after the day's MOC cutoff misses the auction.
 
     IB answers that with error 201; before this was modelled the order sat
     inertly until the day rolled and was then expired, so a position whose only
@@ -374,8 +374,8 @@ class TestMocCutoff:
         assert trade.orderStatus.status == TradeStatus.PreSubmitted
 
     def test_a_deferred_moc_that_goes_live_after_the_cutoff_is_rejected(self, sim, time_provider):
-        """Deferring to 15:55 is exactly as late as submitting at 15:55 — the
-        target date is irrelevant, only the time of day it activates."""
+        """Deferring to 15:55 is exactly as late as submitting at 15:55: on a
+        regular day the cutoff is 15:50 whichever day the deferral names."""
         time_provider.set_time(datetime(2024, 1, 15, 9, 30))
         trade = sim.submit_order(moc_gtc_gat_order(gat="20240117 15:55:00 US/Eastern"))
         from xtrading_models import TradeStatus
@@ -429,3 +429,44 @@ class TestMocCutoffOnBracketChildren:
         sim.submit_order(parent)
         sim.process_bar(make_close_bar(datetime(2024, 1, 15, 15, 59), close=100.0))
         assert 2 not in sim._oca_groups.get("exit_group", set())
+
+
+class TestMocCutoffOnAHalfSession:
+    """The cutoff is ten minutes before the session's close, so 12:50 on a 13:00 half session (B24).
+
+    A simulator given no calendar closes every day at 16:00; a caller with one passes `session_close`.
+    2024-11-29, the day after Thanksgiving, closed at 13:00."""
+
+    HALF_DAY = date(2024, 11, 29)
+
+    @pytest.fixture
+    def half_day_sim(self, time_provider):
+        closes = {self.HALF_DAY: dtime(13, 0)}
+        Simulator.static_init(time_provider, SimulatorConfig(session_close=lambda day: closes.get(day, dtime(16, 0))))
+        return Simulator()
+
+    def test_an_moc_after_the_half_day_cutoff_is_rejected(self, half_day_sim, time_provider):
+        time_provider.set_time(datetime(2024, 11, 29, 12, 55))
+        trade = half_day_sim.submit_order(moc_order())
+        assert trade.orderStatus.status == TradeStatus.Cancelled
+        assert "goes live 12:55, after the 12:50 cutoff" in trade.log[-1].message
+
+    def test_an_moc_before_the_half_day_cutoff_is_accepted(self, half_day_sim, time_provider):
+        time_provider.set_time(datetime(2024, 11, 29, 12, 45))
+        assert half_day_sim.submit_order(moc_order()).orderStatus.status == TradeStatus.PreSubmitted
+
+    def test_a_deferral_is_judged_against_the_day_it_names(self, half_day_sim, time_provider):
+        """13:30 misses the half session's auction and reaches a regular day's."""
+        time_provider.set_time(datetime(2024, 11, 27, 9, 30))
+        late = half_day_sim.submit_order(moc_gtc_gat_order(gat="20241129 13:30:00 US/Eastern"))
+        on_time = half_day_sim.submit_order(moc_gtc_gat_order(gat="20241202 13:30:00 US/Eastern"))
+        assert late.orderStatus.status == TradeStatus.Cancelled
+        assert on_time.orderStatus.status == TradeStatus.PreSubmitted
+
+    def test_a_modification_into_the_half_day_after_its_cutoff_is_refused(self, half_day_sim, time_provider):
+        time_provider.set_time(datetime(2024, 11, 27, 9, 30))
+        order = moc_gtc_gat_order(gat="20241202 13:30:00 US/Eastern")
+        order.orderId = 7
+        half_day_sim.submit_order(order)
+        assert half_day_sim.update_order(7, goodAfterTime="20241129 12:55:00 US/Eastern") is False
+        assert half_day_sim.update_order(7, goodAfterTime="20241129 12:45:00 US/Eastern") is True
