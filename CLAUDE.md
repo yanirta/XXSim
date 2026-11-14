@@ -105,7 +105,7 @@ difference would read as an edge belonging to the order shape.
 
 ### OCA (One-Cancels-Other)
 
-Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. Order closest to `bar.open` fills first when multiple could fill.
+Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. When several could fill on one bar, the order whose trigger is closest to `bar.open` fills first (`Simulator._trigger_distance`): a limit or stop by its price, a market order at the open, a MOC last, a TRAIL by its current stop (or the stop it would take at the open, before it has tracked a price). Ties keep submission order. Bar-level data cannot say which price came first; this rule is a stated convention, not a reconstruction (0.25.0; before it, a TRAIL's `price` of 0 put it first in every group).
 
 ### Bar Processing Algorithm
 
@@ -113,11 +113,11 @@ Set `ocaGroup` on orders to link them. When one fills, siblings are cancelled. O
 1. Expire GTD orders past goodTillDate
 2. Expire DAY orders if the date changed (compares bar date to first `Submitted` log entry), before matching, so a DAY order
    never fills on a later day
-3. Sort active orders by distance to bar.open (OCO priority)
+3. Sort active orders by trigger distance to bar.open (OCA priority, above)
 4. For each active order (skip if OCO-cancelled, skip if GAT not yet active):
    a. Execute via ExecutionEngine
    b. If filled: update Trade, cancel OCO siblings, submit bracket children. Of two OCA children that both fill on the
-      parent's fill bar, the one added first wins
+      parent's fill bar, the one whose trigger is closest to the parent's fill price wins; a tie goes to the one added first
    c. If not filled: keep (state mutated in-place)
 
 **MOC PreSubmitted lifecycle:** MOC orders are submitted with status `PreSubmitted`. On the first `process_bar` call they activate to `Submitted` (dated that bar). This means a MOC order submitted after the day's last bar sees its first bar the next morning and fills at that day's close — matching IB's real behavior.

@@ -2221,3 +2221,35 @@ class TestIntradayGtd:
         trade = simulator.submit_order(self._limit_order("not-a-date"))
         simulator.process_bar(self._bar(datetime(2024, 1, 16, 9, 30), price=101.0))
         assert trade.orderStatus.status != TradeStatus.Cancelled
+
+
+class TestOcaPriorityByTriggerDistance:
+    """Within an OCA group the order whose trigger is closest to the open acts first (B20).
+
+    A TRAIL's own `price` is 0, which once sorted it first in every group; and on the parent's fill bar the
+    child added first won, whatever its trigger."""
+
+    @staticmethod
+    def _bar(day: int, open_: float, high: float, low: float, close: float) -> BarData:
+        return BarData(date=datetime(2024, 1, day, 10, 0), open=open_, high=high, low=low, close=close, volume=1000)
+
+    def test_a_target_nearer_the_open_beats_an_armed_trailing_stop(self, simulator):
+        trail = TrailingStopMarket(action='SELL', totalQuantity=100, trailingPercent=5, ocaGroup='exit')
+        target = LimitOrder(action='SELL', totalQuantity=100, price=101.0, ocaGroup='exit')
+        simulator.submit_order(trail)
+        simulator.submit_order(target)
+        assert simulator.process_bar(self._bar(15, 100.0, 100.0, 100.0, 100.0)) == []   # arms the trail: stop 95
+        # Open 100: the target (101) is 1 away, the trail's stop (95) 5. Both trigger on this bar.
+        fills = simulator.process_bar(self._bar(16, 100.0, 102.0, 90.0, 91.0))
+        assert [f.execution.orderId for f in fills] == [target.orderId]
+        assert fills[0].execution.price == 101.0
+
+    def test_on_the_parent_bar_the_child_nearest_its_fill_wins(self, simulator):
+        entry = LimitOrder(action='BUY', totalQuantity=100, price=98.0)
+        stop = StopOrder(action='SELL', totalQuantity=100, stopPrice=90.0, ocaGroup='bracket')     # 8 from 98
+        target = LimitOrder(action='SELL', totalQuantity=100, price=99.0, ocaGroup='bracket')      # 1 from 98
+        entry.add_child(stop)
+        entry.add_child(target)
+        simulator.submit_order(entry)
+        fills = simulator.process_bar(self._bar(15, 100.0, 110.0, 85.0, 105.0))
+        assert [f.execution.orderId for f in fills if f.execution.orderId != entry.orderId] == [target.orderId]

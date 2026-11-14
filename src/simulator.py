@@ -439,10 +439,10 @@ class Simulator:
         # Update last bar date
         self._last_bar_date = current_date
 
-        # 3. Sort trades by distance to open price for OCO priority
+        # 3. OCA priority: the order whose trigger is closest to the open acts first
         trades_to_process = sorted(
             self._active_trades.items(),
-            key=lambda x: self._distance_to_open(x[1].order, bar)
+            key=lambda x: self._trigger_distance(x[1].order, bar.open)
         )
 
         # 4. Process each active trade
@@ -478,10 +478,12 @@ class Simulator:
                 for f in child_fills:
                     child_fills_by_id.setdefault(f.execution.orderId, []).append(f)
 
-                # Pre-compute which OCA groups have a child fill
-                # Pick the first filled child per group, in the order the children were added
+                # Pre-compute which OCA groups have a child fill. Children trade on the rest of the
+                # bar from the parent's fill price, so the filled child whose trigger is closest to it
+                # wins; on a tie, the one added first.
+                parent_price = parent_fills[0].execution.price
                 oca_winner: dict[str, int] = {}  # ocaGroup -> winning orderId
-                for child in trade.order.children:
+                for child in sorted(trade.order.children, key=lambda c: self._trigger_distance(c, parent_price)):
                     if child.ocaGroup and child.orderId in child_fills_by_id:
                         if child.ocaGroup not in oca_winner:
                             oca_winner[child.ocaGroup] = child.orderId
@@ -604,15 +606,27 @@ class Simulator:
         ))
         self._events.emit(SimulatorEvent.status, trade)
 
-    def _distance_to_open(self, order: Order, bar: BarData) -> float:
-        """Calculate distance from order's trigger price to bar.open.
+    def _trigger_distance(self, order: Order, reference: float) -> float:
+        """How far `order`'s trigger sits from `reference` (a bar's open, or a parent's fill price).
 
-        Used to determine OCO priority - order closest to open fills first.
+        OCA priority: the closest acts first. A market order sits at the reference; a MOC carries no price
+        (`inf`) and so goes last. A trailing stop's own `price` is 0, which once put it first in every group;
+        it uses its current stop instead, or, before it has seen a bar, the stop it would take at `reference`.
         """
         if order.orderType == 'MKT':
             return 0.0
-        price = order.price or bar.open
-        return abs(price - bar.open)
+        if order.orderType in ('TRAIL', 'TRAIL LIMIT'):
+            return abs(self._trail_trigger(order, reference) - reference)
+        return abs(order.price - reference)
+
+    def _trail_trigger(self, order: Order, reference: float) -> float:
+        """A trailing stop's current stop, or the one it takes at `reference` if it has not yet tracked a price."""
+        if order.extremePrice is not None:
+            return order.stopPrice
+        sign = -1 if order.action == 'SELL' else 1
+        if order.trailingDistance is not None:
+            return reference + sign * order.trailingDistance
+        return reference * (1 + sign * order.trailingPercent / 100)
 
     def _collect_cancel_subtree(self, order_id: int, trade: Trade, reason: str) -> list[Trade]:
         """Cancel a trade and all its children (state only, no events).
